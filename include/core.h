@@ -41,6 +41,7 @@ typedef struct managed_client {
     pool_raw_client *clients_raw_pools;
     uint32_t count;
     pthread_mutex_t lock;
+    int notifyAllThread[2];
 } managed_client;
 
 void init_managed_client(struct managed_client *mng_client);

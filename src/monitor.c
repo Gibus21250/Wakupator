@@ -22,18 +22,13 @@
 void *main_client_monitoring(void* args)
 {
 
-    struct ethhdr *eth;
-    struct iphdr *ip;
-    struct ip6_hdr *ip6;
-    struct tcphdr *tcp;
-
     main_client_args *mainClientArgs = (main_client_args*) args;
     struct managed_client *managedClient = mainClientArgs->managedClient;
     struct client* cl = mainClientArgs->client;
 
     printf("Thread Start to monitor %s\n", cl->mac);
 
-    struct pollfd *fds = (struct pollfd*) calloc(cl->countIp, sizeof(struct pollfd));
+    struct pollfd *fds = (struct pollfd*) calloc(cl->countIp + 1, sizeof(struct pollfd));
 
     if(fds == NULL)
     {
@@ -53,6 +48,7 @@ void *main_client_monitoring(void* args)
         ip_port_info *info = &cl->ipPortInfo[i];
 
         int sock = create_raw_filter_socket(info);
+
         if(sock == -1) //Error
         {
             for (uint32_t k = 0; k < nbSockCreated; ++k) {
@@ -90,77 +86,46 @@ void *main_client_monitoring(void* args)
 
     }
 
-    //Notify the master that everything is OK
+
+    //Adding at the last the pipe for handling master notification (close socket from a pollfd seems to not work)
+    fds[nbSockCreated].fd = managedClient->notifyAllThread[0];
+    fds[nbSockCreated].events = POLLIN | POLLOUT;
+    mainClientArgs->pollHandler->fds = fds;
+    mainClientArgs->pollHandler->count = nbSockCreated;
+
+    for (int i = 0; i < mainClientArgs->pollHandler->count + 1; ++i) {
+        printf("THREAD: fd %d: %d", i, mainClientArgs->pollHandler->fds[i].fd);
+    }
+    printf("\n");
+
+    //------------ Notify the master that everything is OK ------------
     pthread_mutex_lock(mainClientArgs->notify);
     pthread_cond_signal(mainClientArgs->cond);
     pthread_mutex_unlock(mainClientArgs->notify);
 
-    printf("Thread Waiting for network activity on %s\n", cl->mac);
-    int ret = poll(fds, nbSockCreated, -1);
+    printf("%s thread: Waiting for network activity.\n", cl->mac);
+    poll(fds, nbSockCreated+1, -1);
+    printf("%s thread: network activity detected.\n", cl->mac);
 
     //Error while waiting for network activity (example: closed socket bc shut down asked)
-    if(ret < 0)
-    {
-        ret = errno;
-        if(ret != POLLNVAL)
-        {
-            for (uint32_t k = 0; k < nbSockCreated; ++k) {
-                close(fds[k].fd);
-            }
-        }
-        wake_up(cl->mac);
-        unregister_client(managedClient, cl->mac);
-        return NULL;
-    }
 
-    for (int i = 0; i < nbSockCreated; i++) {
-        if (fds[i].revents & POLLIN)
-        {
-            wake_up(cl->mac); //Wake up the dst!
-
-            char buffer[1024];
-            ssize_t bytes = recv(fds[i].fd, buffer, sizeof(buffer) - 1, 0);
-            if (bytes > 0) {
-                // Pointer vers l'en-tête Ethernet
-                eth = (struct ethhdr *)buffer;
-
-                // Pointer vers l'en-tête IPv6 (couche 3)
-                ip6 = (struct ip6_hdr *)(buffer + sizeof(struct ethhdr));
-                //ip = (struct iphdr *)(buffer + sizeof(struct ethhdr));
-
-                // Pointer vers l'en-tête TCP (couche 4)
-                tcp = (struct tcphdr *)(buffer + sizeof(struct ethhdr) + sizeof(struct ip6_hdr));
-
-                // Afficher les détails du paquet
-                print_packet_details_ipv6(eth, ip6, tcp);
-
-                printf("New Source MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
-                       eth->h_source[0], eth->h_source[1], eth->h_source[2],
-                       eth->h_source[3], eth->h_source[4], eth->h_source[5]);
-
-                printf("New Destination MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
-                       eth->h_dest[0], eth->h_dest[1], eth->h_dest[2],
-                       eth->h_dest[3], eth->h_dest[4], eth->h_dest[5]);
-            } else if (bytes != 0) {
-                printf("Connection closed.\n");
-                close(fds[i].fd);
-            } else {
-                perror("recv failed");
-            }
-        }
-    }
-
+    //No care about the reason, wake_up the client!
+    printf("Client %s has been woke up\n", cl->mac);
+    wake_up(cl->mac); //Wake up the dst!
 
     for (int i = 0; i < nbSockCreated; ++i)
     {
-        close(fds[i].fd);
+        if(fds[i].fd != -1)
+            close(fds[i].fd);
+
         snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl->ipPortInfo[i].ipStr);
         system(cmd);
     }
 
+    free(fds);
+
     unregister_client(managedClient, cl->mac);
 
-    free(fds);
     return NULL;
 }
 
@@ -259,7 +224,7 @@ void wake_up(const char *macStr)
 
     strncpy(ifr.ifr_name, "eth0", IFNAMSIZ-1);
     if (ioctl(rawSocket, SIOCGIFINDEX, &ifr) < 0) {
-        perror("Erreur lors de la récupération de l'index de l'interface");
+        perror("Error while gather index of the interface.");
         close(rawSocket);
         return;
     }
@@ -272,10 +237,10 @@ void wake_up(const char *macStr)
 
     //Now send the packet through the lan
     if (sendto(rawSocket, frame, sizeof(frame), 0, (struct sockaddr*)&socket_address, sizeof(struct sockaddr_ll)) < 0) {
-        perror("Erreur lors de l'envoi de la trame Ethernet");
+        perror("Error while sending the WoL packet.");
 
     } else {
-        printf("Paquet magique envoyé avec succès sur l'interface eth0.\n");
+        printf("Packet WoL successfully sent.\n");
     }
     close(rawSocket);
 }

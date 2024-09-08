@@ -9,9 +9,12 @@
 
 #define BUFFER_GROW_STEP 8
 
+#include <sys/eventfd.h>
+#include <fcntl.h>
+#include <stdlib.h>
+
 #include "core.h"
 #include "monitor.h"
-
 
 void init_managed_client(managed_client *mng_client)
 {
@@ -20,43 +23,47 @@ void init_managed_client(managed_client *mng_client)
     mng_client->clients_raw_pools = (pool_raw_client*) malloc(BUFFER_GROW_STEP * sizeof(pool_raw_client));
     mng_client->count = 0;
     pthread_mutex_init(&mng_client->lock, NULL);
+    pipe(mng_client->notifyAllThread);
 }
 
 void destroy_managed_client(managed_client *mng_client)
 {
-    printf("Destroy managed client\n");
+
+    pthread_mutex_lock(&mng_client->lock);
     if(mng_client->count != 0)
     {
-        pthread_mutex_lock(&mng_client->lock);
+        printf("At least one client are registered, wake them up!\n");
+        const char placebo = '1';
+        write(mng_client->notifyAllThread[1], &placebo, 1);
 
-        for (int i = 0; i < mng_client->count; ++i) {
-            for (int j = 0; j < mng_client->clients_raw_pools[i].count; ++j) {
-                close(mng_client->clients_raw_pools[i].fds[j].fd); //This "unlock" waiting threads
-            }
-        }
+        pthread_mutex_unlock(&mng_client->lock);
 
-        //Wait all child thread to clean shutdown before cleanup the struct
+        printf("Waiting for all thread to stop\n");
+        //Waiting all child thread to clean shutdown before cleanup the struct
         for (int i = 0; i < mng_client->count; ++i)
             pthread_join(mng_client->clients_thread[i], NULL);
 
+        printf("All thread execute a clean shutdown\n");
+    } else
         pthread_mutex_unlock(&mng_client->lock);
-        pthread_mutex_destroy(&mng_client->lock);
 
-        for (int i = 0; i < mng_client->count; ++i)
-            destroy_client(&mng_client->clients[i]);
-
-    }
+    pthread_mutex_destroy(&mng_client->lock);
     free(mng_client->clients);
     free(mng_client->clients_thread);
     mng_client->count = 0;
+    close(mng_client->notifyAllThread[0]);
+    close(mng_client->notifyAllThread[1]);
+
 }
 
 CLIENT_MONITORING_CODE register_client(managed_client *mng_client, client *newClient)
 {
+    //Lock the struct
     pthread_mutex_lock(&mng_client->lock);
+
     //Verify that the client's mac address isn't already monitored
     for (int i = 0; i < mng_client->count; ++i) {
-        if(strcasecmp(newClient->mac, mng_client->clients[i].mac) != 0)
+        if(strcasecmp(newClient->mac, mng_client->clients[i].mac) == 0)
         {
             pthread_mutex_unlock(&mng_client->lock);
             return MONITORING_MAC_ADDRESS_ALREADY_MONITORED;
@@ -87,13 +94,14 @@ CLIENT_MONITORING_CODE register_client(managed_client *mng_client, client *newCl
             &mng_client->clients[index],
             &mutex,
             &cond,
+            &mng_client->clients_raw_pools[index],
             0
     };
 
     pthread_mutex_lock(&mutex);
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 999999; //more than 1 second to launch the thread is like an error
+    timeout.tv_sec += 1; //more than 1 second to launch the thread is like an error
 
     //Now we can register this client
     if(pthread_create(&mng_client->clients_thread[index], NULL, main_client_monitoring, (void*) &args))

@@ -14,6 +14,7 @@ typedef struct main_client_args {
     client *client;
     pthread_mutex_t *notify;
     pthread_cond_t *cond;
+    pool_raw_client *pollHandler;
     char error;
 } main_client_args;
 
