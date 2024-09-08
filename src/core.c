@@ -24,6 +24,7 @@ void init_managed_client(managed_client *mng_client)
 
 void destroy_managed_client(managed_client *mng_client)
 {
+    printf("Destroy managed client\n");
     if(mng_client->count != 0)
     {
         pthread_mutex_lock(&mng_client->lock);

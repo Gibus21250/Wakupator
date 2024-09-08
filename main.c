@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <signal.h>
 
 #include "utils.h"
 #include "parser.h"
@@ -12,12 +13,32 @@
 
 #define BUFFER_SIZE 2048
 
+int server_fd = -1;
+
+void handle_signal(int signal) {
+    if (signal == SIGINT || signal == SIGTERM ||signal == SIGQUIT || signal == SIGABRT)
+    {
+        printf("Signal SIGINT catched, wake up all client\n");
+
+        if (server_fd != -1) {
+            close(server_fd);
+            server_fd = -1;
+        }
+    }
+}
+
 int wakupator_main()
 {
+
+    if (signal(SIGINT, handle_signal) == SIG_ERR) {
+        fprintf(stderr, "Error while setup Signal handler.\n");
+        return 1;
+    }
+
     managed_client managedClient;
     init_managed_client(&managedClient);
 
-    int server_fd, client_fd;
+    int client_fd;
     struct sockaddr_storage serverAddress;
     const int addrLen = sizeof(struct sockaddr_storage);
 
@@ -26,25 +47,33 @@ int wakupator_main()
     if (bind(server_fd, (struct sockaddr *)&serverAddress, addrLen) < 0) {
         perror("Binding failed!\n");
         close(server_fd);
-        exit(EXIT_FAILURE);
+        return EXIT_FAILURE;
     }
 
     if (listen(server_fd, 8) < 0) {
         perror("Init listen failed!\n");
         close(server_fd);
-        exit(EXIT_FAILURE);
+        return EXIT_FAILURE;
     }
 
     printf("Wakupator ready to register clients!\n");
 
-    while(1)
+    int shouldStop = 0;
+    while(shouldStop == 0)
     {
         char buffer[BUFFER_SIZE] = {0};
 
         if ((client_fd = accept(server_fd, (struct sockaddr *)&serverAddress, (socklen_t*) &addrLen)) < 0) {
-            perror("Accept new client connexion failed!\n");
-            close(server_fd);
-            exit(EXIT_FAILURE);
+            printf("%d shouldstop: %d\n", server_fd, shouldStop);
+            if(server_fd == -1)
+            {
+                printf("Wakupator's main server closed\n");
+                shouldStop = 1;
+            }
+            else
+                printf("Error while accept new client connexion, skipping\n");
+
+            continue;
         }
 
         //Reading the JSON from the client
@@ -86,9 +115,6 @@ int wakupator_main()
                     printf("%d]\n", cl.ipPortInfo[i].ports[j]);
             }
         }
-
-
-
     }
 
     destroy_managed_client(&managedClient);
