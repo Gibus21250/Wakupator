@@ -18,7 +18,7 @@ int server_fd = -1;
 void handle_signal(int signal) {
     if (signal == SIGINT || signal == SIGTERM ||signal == SIGQUIT || signal == SIGABRT)
     {
-        printf("Signal SIGINT catched, wake up all client\n");
+        printf("\nSignal SIGINT catched, wake up all client\n");
 
         if (server_fd != -1) {
             close(server_fd);
@@ -58,17 +58,16 @@ int wakupator_main()
 
     printf("Wakupator ready to register clients!\n");
 
-    int shouldStop = 0;
-    while(shouldStop == 0)
+    int running = 1;
+    while(running)
     {
         char buffer[BUFFER_SIZE] = {0};
 
         if ((client_fd = accept(server_fd, (struct sockaddr *)&serverAddress, (socklen_t*) &addrLen)) < 0) {
-            printf("%d shouldstop: %d\n", server_fd, shouldStop);
             if(server_fd == -1)
             {
                 printf("Wakupator's main server closed\n");
-                shouldStop = 1;
+                running = 0;
             }
             else
                 printf("Error while accept new client connexion, skipping\n");
@@ -117,7 +116,11 @@ int wakupator_main()
         }
     }
 
+    if(server_fd != -1)
+        close(server_fd);
+
     destroy_managed_client(&managedClient);
+
     return 0;
 }
 
