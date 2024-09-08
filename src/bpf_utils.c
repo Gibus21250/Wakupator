@@ -28,10 +28,9 @@ uint32_t filter_ipv4(struct sock_filter *buffer, uint32_t codeIndex, const uint3
 
 uint32_t filter_ipv6(struct sock_filter *buffer, uint32_t codeIndex, const uint32_t raw_ipv6[4], const int l3Start)
 {
-    //Todo improve if IPv6 multiple next header compute padding
     buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_LD + BPF_W + BPF_ABS, l3Start + 24); //Load first chunk IPV6
     buffer[codeIndex++] = (struct sock_filter) BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, bswap_32(raw_ipv6[0]), 0, 6); // == raw_IPv6[0] ?
-    buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_LD + BPF_W + BPF_ABS, l3Start + 28); //Load second chunk IPV6 TODO rechanger + value
+    buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_LD + BPF_W + BPF_ABS, l3Start + 28); //Load second chunk IPV6
     buffer[codeIndex++] = (struct sock_filter) BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, bswap_32(raw_ipv6[1]), 0, 4); // == raw_IPv6[1] ?
     buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_LD + BPF_W + BPF_ABS, l3Start + 32); //etc
     buffer[codeIndex++] = (struct sock_filter) BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, bswap_32(raw_ipv6[2]), 0, 2); // etc

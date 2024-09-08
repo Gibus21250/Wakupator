@@ -108,7 +108,7 @@ void *main_client_monitoring(void* args)
                 close(fds[k].fd);
             }
         }
-        //TODO modifier wake_up to create his own
+        wake_up(cl->mac);
         unregister_client(managedClient, cl->mac);
         return NULL;
     }
@@ -235,10 +235,11 @@ void wake_up(const char *macStr)
     for (int i = 1; i <= 16; i++) {
         memcpy(frame + ETH_HLEN + i * 6, mac_bytes, 6);
     }
-    //TODO handle failed
+
     //Now create a one use raw socket, a raw socket, who receive nothing (proto = 0)
     int rawSocket = socket(PF_PACKET, SOCK_RAW, 0);
-
+    if(rawSocket == -1)//TODO handle failed, the target will not be woke up! (extreme rare scenario)
+        return;
 
     struct ifreq ifr;
     memset(&ifr, 0, sizeof(ifr));
