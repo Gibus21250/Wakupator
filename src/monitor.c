@@ -212,6 +212,19 @@ int create_raw_filter_socket(const ip_port_info *ipPortInfo)
 
     free(bpf_code);
 
+    //Sometimes, the time between socket creation and applying the filter, can catch some packets
+    char buffer[2048];
+    ssize_t len;
+
+    //Clear if necessary
+    while ((len = recv(rawSocket, buffer, sizeof(buffer), MSG_DONTWAIT)) > 0);
+
+    //Check if different error code returner
+    if (len < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        close(rawSocket);
+        return -1;
+    }
+
     return rawSocket;
 }
 
