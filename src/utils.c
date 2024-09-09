@@ -21,6 +21,7 @@ int init_socket(const char *ip, int port, int sockType, int protocol, struct soc
         struct sockaddr_in* saddr = (struct sockaddr_in*) storeAddrInfo;
         saddr->sin_family = AF_INET;
         saddr->sin_port = htons(port);
+        memset(&saddr->sin_zero, 0, sizeof(saddr->sin_zero));
         if (inet_pton(AF_INET, ip, &(saddr->sin_addr)) != 1) {
             perror("Error while writing IPv4 address in sockaddr\n");
             close(sock);
@@ -32,6 +33,8 @@ int init_socket(const char *ip, int port, int sockType, int protocol, struct soc
         struct sockaddr_in6 *saddr = (struct sockaddr_in6*) storeAddrInfo;
         saddr->sin6_family = AF_INET6;
         saddr->sin6_port = htons(port);
+        saddr->sin6_flowinfo = 0;
+        saddr->sin6_scope_id = 0;
         if(inet_pton(AF_INET6, ip, &(saddr->sin6_addr)) != 1) {
             perror("Error while writing IPv6 address in sockaddr\n");
             close(sock);
