@@ -93,11 +93,6 @@ void *main_client_monitoring(void* args)
     mainClientArgs->pollHandler->fds = fds;
     mainClientArgs->pollHandler->count = nbSockCreated;
 
-    for (int i = 0; i < mainClientArgs->pollHandler->count + 1; ++i) {
-        printf("THREAD: fd %d: %d", i, mainClientArgs->pollHandler->fds[i].fd);
-    }
-    printf("\n");
-
     //------------ Notify the master that everything is OK ------------
     pthread_mutex_lock(mainClientArgs->notify);
     pthread_cond_signal(mainClientArgs->cond);
