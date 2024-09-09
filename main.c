@@ -101,6 +101,7 @@ int wakupator_main()
         if(res != MONITORING_OK) {
             close(client_fd);
             printf("Failed to register the client: %s\n", message);
+            destroy_client(&cl);
             continue;
         }
 

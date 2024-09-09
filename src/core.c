@@ -50,6 +50,7 @@ void destroy_managed_client(managed_client *mng_client)
     pthread_mutex_destroy(&mng_client->lock);
     free(mng_client->clients);
     free(mng_client->clients_thread);
+    free(mng_client->clients_raw_pools);
     mng_client->count = 0;
     close(mng_client->notifyAllThread[0]);
     close(mng_client->notifyAllThread[1]);
