@@ -9,7 +9,6 @@
 #include "utils.h"
 #include "parser.h"
 #include "core.h"
-#include "monitor.h"
 
 #define BUFFER_SIZE 2048
 
@@ -35,9 +34,6 @@ int wakupator_main()
         return 1;
     }
 
-    managed_client managedClient;
-    init_managed_client(&managedClient);
-
     int client_fd;
     struct sockaddr_storage serverAddress;
     const int addrLen = sizeof(struct sockaddr_storage);
@@ -55,6 +51,9 @@ int wakupator_main()
         close(server_fd);
         return EXIT_FAILURE;
     }
+
+    manager managedClient;
+    init_manager(&managedClient);
 
     printf("Wakupator ready to register clients!\n");
 
@@ -93,12 +92,12 @@ int wakupator_main()
 
         printf("Parsing OK\n");
 
-        CLIENT_MONITORING_CODE res =  register_client(&managedClient, &cl);
+        MANAGER_CODE res =  register_client(&managedClient, &cl);
 
         message = get_monitor_error(res);
         write(client_fd, message, strlen(message)+1);
 
-        if(res != MONITORING_OK) {
+        if(res != MANAGER_OK) {
             close(client_fd);
             printf("Failed to register the client: %s\n", message);
             destroy_client(&cl);
@@ -120,7 +119,7 @@ int wakupator_main()
     if(server_fd != -1)
         close(server_fd);
 
-    destroy_managed_client(&managedClient);
+    destroy_manager(&managedClient);
 
     return 0;
 }

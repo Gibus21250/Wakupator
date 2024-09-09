@@ -23,12 +23,15 @@ void *main_client_monitoring(void* args)
 {
 
     main_client_args *mainClientArgs = (main_client_args*) args;
-    struct managed_client *managedClient = mainClientArgs->managedClient;
-    struct client* cl = mainClientArgs->client;
+    struct manager *managedClient = mainClientArgs->managedClient;
 
-    printf("Thread Start to monitor %s\n", cl->mac);
+    //Shallow copy of the client
+    struct client cl = *mainClientArgs->client;
 
-    struct pollfd *fds = (struct pollfd*) calloc(cl->countIp + 1, sizeof(struct pollfd));
+    printf("Thread Start to monitor %s\n", cl.mac);
+
+    //+1 to handle notify on the pipe output of the master thread
+    struct pollfd *fds = (struct pollfd*) calloc(cl.countIp + 1, sizeof(struct pollfd));
 
     if(fds == NULL)
     {
@@ -44,8 +47,8 @@ void *main_client_monitoring(void* args)
     uint32_t nbSockCreated = 0;
 
     //Create all socket needed: on per group IP/ports
-    for (uint32_t i = 0; i < cl->countIp; ++i) {
-        ip_port_info *info = &cl->ipPortInfo[i];
+    for (uint32_t i = 0; i < cl.countIp; ++i) {
+        ip_port_info *info = &cl.ipPortInfo[i];
 
         int sock = create_raw_filter_socket(info);
 
@@ -53,6 +56,7 @@ void *main_client_monitoring(void* args)
         {
             for (uint32_t k = 0; k < nbSockCreated; ++k) {
                 close(fds[k].fd);
+                snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl.ipPortInfo[k].ipStr);
             }
             pthread_mutex_lock(mainClientArgs->notify);
             mainClientArgs->error = 1;
@@ -68,7 +72,7 @@ void *main_client_monitoring(void* args)
         {
             for (uint32_t k = 0; k < nbSockCreated; ++k) {
                 close(fds[k].fd);
-                snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl->ipPortInfo[i].ipStr);
+                snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl.ipPortInfo[k].ipStr);
             }
             pthread_mutex_lock(mainClientArgs->notify);
             mainClientArgs->error = 1;
@@ -86,41 +90,36 @@ void *main_client_monitoring(void* args)
 
     }
 
-
-    //Adding at the last the pipe for handling master notification (close socket from a pollfd seems to not work)
-    fds[nbSockCreated].fd = managedClient->notifyAllThread[0];
+    //Adding at the last the pipe for handling master notification (close socket from a pollfd seems to not unlock the thread)
+    fds[nbSockCreated].fd = managedClient->notify[0];
     fds[nbSockCreated].events = POLLIN | POLLOUT;
-    mainClientArgs->pollHandler->fds = fds;
-    mainClientArgs->pollHandler->count = nbSockCreated;
 
     //------------ Notify the master that everything is OK ------------
     pthread_mutex_lock(mainClientArgs->notify);
     pthread_cond_signal(mainClientArgs->cond);
     pthread_mutex_unlock(mainClientArgs->notify);
 
-    printf("%s thread: Waiting for network activity.\n", cl->mac);
+    printf("%s thread: Waiting for network activity.\n", cl.mac);
     poll(fds, nbSockCreated+1, -1);
-    printf("%s thread: network activity detected.\n", cl->mac);
-
-    //Error while waiting for network activity (example: closed socket bc shut down asked)
+    printf("%s thread: network activity detected.\n", cl.mac);
 
     //No care about the reason, wake_up the client!
-    printf("Client %s has been woke up\n", cl->mac);
-    wake_up(cl->mac); //Wake up the dst!
+    printf("Client %s has been woke up\n", cl.mac);
+    wake_up(cl.mac); //Wake up the dst!
 
     for (int i = 0; i < nbSockCreated; ++i)
     {
         if(fds[i].fd != -1)
             close(fds[i].fd);
 
-        snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl->ipPortInfo[i].ipStr);
+        snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl.ipPortInfo[i].ipStr);
         system(cmd);
     }
 
+    unregister_client(managedClient, cl.mac);
+
     free(fds);
-
-    unregister_client(managedClient, cl->mac);
-
+    destroy_client(&cl);
     return NULL;
 }
 
@@ -129,7 +128,6 @@ int create_raw_filter_socket(const ip_port_info *ipPortInfo)
     uint16_t etherType = ipPortInfo->ipFormat == AF_INET ? ETH_P_IP : ETH_P_IPV6;
 
     //Generate and prepare BPF asm for the kernel
-
     struct sock_filter *bpf_code = (struct sock_filter*) calloc(100, sizeof(struct sock_filter));
 
     uint32_t raw_ip[4];
@@ -233,25 +231,12 @@ void wake_up(const char *macStr)
     //Now send the packet through the lan
     if (sendto(rawSocket, frame, sizeof(frame), 0, (struct sockaddr*)&socket_address, sizeof(struct sockaddr_ll)) < 0) {
         perror("Error while sending the WoL packet.");
-
-    } else {
-        printf("Packet WoL successfully sent.\n");
     }
+
     close(rawSocket);
 }
 
 void redirect_packet(void* packet, const char *macStr)
 {
 
-}
-
-const char* get_monitor_error(CLIENT_MONITORING_CODE code)
-{
-    switch (code)
-    {
-        case MONITORING_OK: return "OK.";
-        case MONITORING_MAC_ADDRESS_ALREADY_MONITORED: return "A client with this MAC address is already monitored.";
-        case MONITORING_THREAD_CREATION_ERROR: return "Intern error while creating thread monitor.";
-        case MONITORING_THREAD_INIT_ERROR: return "Error while init information for the thread monitor.";
-    }
 }

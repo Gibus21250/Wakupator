@@ -9,12 +9,17 @@
 
 #include "core.h"
 
+//TODO add error message
+typedef enum MONITOR_ERROR {
+    MONITOR_OK = 0,
+    MONITOR_OUT_OF_MEMORY
+} MONITOR_ERROR;
+
 typedef struct main_client_args {
-    managed_client *managedClient;
+    manager *managedClient;
     client *client;
     pthread_mutex_t *notify;
     pthread_cond_t *cond;
-    pool_raw_client *pollHandler;
     char error;
 } main_client_args;
 
@@ -25,7 +30,5 @@ int create_raw_filter_socket(const ip_port_info *ipPortInfo);
 void wake_up(const char *macStr);
 
 void redirect_packet(void* packet, const char *macStr);
-
-const char* get_monitor_error(CLIENT_MONITORING_CODE code);
 
 #endif //WAKUPATOR_MONITOR_H

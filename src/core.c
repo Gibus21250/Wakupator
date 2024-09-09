@@ -7,7 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define BUFFER_GROW_STEP 8
+#define BUFFER_GROW_STEP 1
 
 #include <sys/eventfd.h>
 #include <fcntl.h>
@@ -16,17 +16,16 @@
 #include "core.h"
 #include "monitor.h"
 
-void init_managed_client(managed_client *mng_client)
+void init_manager(struct manager *mng_client)
 {
-    mng_client->clients = (client*) malloc(BUFFER_GROW_STEP * sizeof(client));
-    mng_client->clients_thread = (pthread_t*) malloc(BUFFER_GROW_STEP * sizeof(pthread_t));
-    mng_client->clients_raw_pools = (pool_raw_client*) malloc(BUFFER_GROW_STEP * sizeof(pool_raw_client));
+    mng_client->clientThreadInfos = (thread_monitor_info*) malloc(BUFFER_GROW_STEP * sizeof(thread_monitor_info));
     mng_client->count = 0;
+    mng_client->bufferSize = BUFFER_GROW_STEP;
     pthread_mutex_init(&mng_client->lock, NULL);
-    pipe(mng_client->notifyAllThread);
+    pipe(mng_client->notify);
 }
 
-void destroy_managed_client(managed_client *mng_client)
+void destroy_manager(struct manager *mng_client)
 {
 
     pthread_mutex_lock(&mng_client->lock);
@@ -34,85 +33,86 @@ void destroy_managed_client(managed_client *mng_client)
     {
         printf("At least one client are registered, wake them up!\n");
         const char placebo = '1';
-        write(mng_client->notifyAllThread[1], &placebo, 1);
+        write(mng_client->notify[1], &placebo, 1);
 
         pthread_mutex_unlock(&mng_client->lock);
 
         printf("Waiting for all thread to stop\n");
         //Waiting all child thread to clean shutdown before cleanup the struct
         for (int i = 0; i < mng_client->count; ++i)
-            pthread_join(mng_client->clients_thread[i], NULL);
+            pthread_join(mng_client->clientThreadInfos[i].thread, NULL);
 
         printf("All thread execute a clean shutdown\n");
     } else
         pthread_mutex_unlock(&mng_client->lock);
 
     pthread_mutex_destroy(&mng_client->lock);
-    free(mng_client->clients);
-    free(mng_client->clients_thread);
-    free(mng_client->clients_raw_pools);
+    free(mng_client->clientThreadInfos);
     mng_client->count = 0;
-    close(mng_client->notifyAllThread[0]);
-    close(mng_client->notifyAllThread[1]);
+    close(mng_client->notify[0]);
+    close(mng_client->notify[1]);
 
 }
 
-CLIENT_MONITORING_CODE register_client(managed_client *mng_client, client *newClient)
+MANAGER_CODE register_client(manager *mng_client, client *newClient)
 {
     //Lock the struct
     pthread_mutex_lock(&mng_client->lock);
 
     //Verify that the client's mac address isn't already monitored
     for (int i = 0; i < mng_client->count; ++i) {
-        if(strcasecmp(newClient->mac, mng_client->clients[i].mac) == 0)
+        if(strcasecmp(newClient->mac, mng_client->clientThreadInfos[i].mac) == 0)
         {
             pthread_mutex_unlock(&mng_client->lock);
-            return MONITORING_MAC_ADDRESS_ALREADY_MONITORED;
+            return MANAGER_MAC_ADDRESS_ALREADY_MONITORED;
         }
     }
 
-    uint32_t index = 0;
-    //Get the first index in the buffer where no client is registered TODO improve memory handle
-    for (int i = 0; i < mng_client->count; ++i) {
-        if(mng_client->clients[i].mac[0] == 0)
+    //If the buffer isn't big enough
+    if(mng_client->count == mng_client->bufferSize)
+    {
+        thread_monitor_info *tmp = (thread_monitor_info*) realloc(mng_client->clientThreadInfos, (mng_client->bufferSize + BUFFER_GROW_STEP) * sizeof(thread_monitor_info));
+        if(tmp != NULL)
         {
-            index = i;
-            break;
+            mng_client->clientThreadInfos = tmp;
+            mng_client->bufferSize += BUFFER_GROW_STEP;
+        } else {
+            pthread_mutex_unlock(&mng_client->lock);
+            return MANAGER_HOST_OUT_OF_MEMORY;
         }
     }
 
-    //Shallow copy of the client
-    mng_client->clients[index] = *newClient;
+    uint32_t index = mng_client->count;
 
     pthread_mutex_t mutex;
     pthread_cond_t cond;
 
+    //Create sync stuff for the child thread
     pthread_mutex_init(&mutex, NULL);
     pthread_cond_init(&cond, NULL);
 
     main_client_args args = {
             mng_client,
-            &mng_client->clients[index],
+            newClient,
             &mutex,
             &cond,
-            &mng_client->clients_raw_pools[index],
             0
     };
 
     pthread_mutex_lock(&mutex);
+    pthread_t child;
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 1; //more than 1 second to launch the thread is like an error
+    timeout.tv_sec += 999999; //more than 1 second to launch the thread is like an error
 
     //Now we can register this client
-    if(pthread_create(&mng_client->clients_thread[index], NULL, main_client_monitoring, (void*) &args))
+    if(pthread_create(&child, NULL, main_client_monitoring, (void*) &args))
     {
         pthread_mutex_unlock(&mutex);
         pthread_mutex_destroy(&mutex);
         pthread_cond_destroy(&cond);
         pthread_mutex_unlock(&mng_client->lock);
-        memset(&mng_client->clients[index], 0, sizeof(client));
-        return MONITORING_THREAD_CREATION_ERROR;
+        return MANAGER_THREAD_CREATION_ERROR;
     }
 
     //Wait a notification from the child thread, and this can time out
@@ -122,58 +122,62 @@ CLIENT_MONITORING_CODE register_client(managed_client *mng_client, client *newCl
         pthread_mutex_unlock(&mutex);
         pthread_mutex_destroy(&mutex);
         pthread_cond_destroy(&cond);
-        pthread_cancel(mng_client->clients_thread[index]); //Tell the child to cleanly abort
-        memset(&mng_client->clients[index], 0, sizeof(client));
+        pthread_cancel(child); //Tell the child to cleanly abort
         pthread_mutex_unlock(&mng_client->lock);
-        return MONITORING_THREAD_CREATION_ERROR;
+        return MANAGER_THREAD_CREATION_ERROR;
     }
 
     //Check if no execution error during execution of the child thread
     if(args.error != 0)
     {
         pthread_mutex_unlock(&mutex);
-        pthread_join(mng_client->clients_thread[index], NULL);
-        memset(&mng_client->clients[index], 0, sizeof(client));
+        pthread_join(child, NULL);
         pthread_mutex_destroy(&mutex);
         pthread_cond_destroy(&cond);
         pthread_mutex_unlock(&mng_client->lock);
-        return MONITORING_THREAD_INIT_ERROR;
+        return MANAGER_THREAD_INIT_ERROR;
     }
 
     //Finally, everything is ok
+    memcpy(&mng_client->clientThreadInfos[index].mac, &newClient->mac, 18);
+    mng_client->clientThreadInfos[index].thread = child;
     mng_client->count++;
 
     pthread_mutex_unlock(&mutex);
     pthread_mutex_destroy(&mutex);
     pthread_cond_destroy(&cond);
+
     pthread_mutex_unlock(&mng_client->lock);
 
-    return MONITORING_OK;
+    return MANAGER_OK;
 }
 
-void unregister_client(struct managed_client *mng_client, char* strMac)
+void unregister_client(struct manager *mng_client, char* strMac)
 {
     pthread_mutex_lock(&mng_client->lock);
 
     for (int i = 0; i < mng_client->count; ++i) {
-        if(strcasecmp(strMac, mng_client->clients[i].mac) == 0)
+        //if we found the client
+        if(strcasecmp(strMac, mng_client->clientThreadInfos[i].mac) == 0)
         {
-            destroy_client(&mng_client->clients[i]);
+            //shift all thread_client_info to the left starting this index
+            for (int j = i; j < mng_client->count-1; ++j)
+                mng_client->clientThreadInfos[j] = mng_client->clientThreadInfos[(j+1)];
+
+            mng_client->count--;
             break;
         }
     }
-    mng_client->count--; //TODO redesign managed memory
     pthread_mutex_unlock(&mng_client->lock);
 }
 
-void destroy_client(client *cl)
+const char* get_monitor_error(MANAGER_CODE code)
 {
-    for (int i = 0; i < cl->countIp; ++i)
+    switch (code)
     {
-        free(cl->ipPortInfo[i].ipStr);
-        free(cl->ipPortInfo[i].ports);
+        case MANAGER_OK: return "OK.";
+        case MANAGER_MAC_ADDRESS_ALREADY_MONITORED: return "A client with this MAC address is already monitored.";
+        case MANAGER_THREAD_CREATION_ERROR: return "Intern error while creating thread monitor.";
+        case MANAGER_THREAD_INIT_ERROR: return "Error while init information for the thread monitor.";
     }
-    free(cl->ipPortInfo);
-
-    memset(cl, 0, sizeof(client));
 }
