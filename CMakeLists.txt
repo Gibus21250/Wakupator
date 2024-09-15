@@ -18,7 +18,8 @@ add_executable(wakupator main.c
         ${PROJECT_SOURCE_DIR}/src/core.c
         ${PROJECT_SOURCE_DIR}/src/parser.c
         ${PROJECT_SOURCE_DIR}/src/monitor.c
-        ${PROJECT_SOURCE_DIR}/src/bpf_utils.c)
+        ${PROJECT_SOURCE_DIR}/src/bpf_utils.c
+        ${PROJECT_SOURCE_DIR}/src/client.c)
 
 target_include_directories(wakupator PUBLIC
         ${PROJECT_SOURCE_DIR}/include
