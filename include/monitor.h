@@ -6,6 +6,7 @@
 #define WAKUPATOR_MONITOR_H
 
 #include <pthread.h>
+#include <netinet/tcp.h>
 
 #include "core.h"
 
@@ -27,7 +28,7 @@ void *main_client_monitoring(void* args);
 
 int create_raw_filter_socket(const ip_port_info *ipPortInfo);
 
-void wake_up(const char *macStr);
+void wake_up(int rawSocket, int ifIndex, const char *macStr);
 
 void redirect_packet(void* packet, const char *macStr);
 
