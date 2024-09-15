@@ -9,8 +9,6 @@
 #include <arpa/inet.h>
 #include <stdlib.h>
 #include <memory.h>
-#include <sys/ioctl.h>
-
 #include <netpacket/packet.h>
 #include <net/if.h>
 #include <errno.h>
@@ -23,7 +21,7 @@ void *main_client_monitoring(void* args)
 {
 
     main_client_args *mainClientArgs = (main_client_args*) args;
-    struct manager *managedClient = mainClientArgs->managedClient;
+    struct manager *manager = mainClientArgs->managerMain;
 
     //Shallow copy of the client
     struct client cl = *mainClientArgs->client;
@@ -91,8 +89,8 @@ void *main_client_monitoring(void* args)
     }
 
     //Adding at the last the pipe for handling master notification (close socket from a pollfd seems to not unlock the thread)
-    fds[nbSockCreated].fd = managedClient->notify[0];
-    fds[nbSockCreated].events = POLLIN | POLLOUT;
+    fds[nbSockCreated].fd = manager->notify[0];
+    fds[nbSockCreated].events = POLLIN;
 
     //------------ Notify the master that everything is OK ------------
     pthread_mutex_lock(mainClientArgs->notify);
@@ -101,11 +99,10 @@ void *main_client_monitoring(void* args)
 
     printf("%s thread: Waiting for network activity.\n", cl.mac);
     poll(fds, nbSockCreated+1, -1);
-    printf("%s thread: network activity detected.\n", cl.mac);
+    wake_up(manager->mainRawSocket, manager->ifIndex,cl.mac); //Wake up the dst!
 
-    //No care about the reason, wake_up the client!
+    printf("%s thread: network activity detected.\n", cl.mac);
     printf("Client %s has been woke up\n", cl.mac);
-    wake_up(cl.mac); //Wake up the dst!
 
     char originalPacket[128];
     memset(&originalPacket, 0, 128);
@@ -115,16 +112,16 @@ void *main_client_monitoring(void* args)
     //Remove all ip spoofed
     for (int i = 0; i < nbSockCreated; ++i)
     {
-        
-        if(fds[i].revents & POLLIN)
+        if(fds[i].fd != -1)
+        {
+            if(fds[i].revents & POLLIN)
         {
             size = read(fds[i].fd, &originalPacket, 128);
             trueTraffic = 1;
         }
-
-        if(fds[i].fd != -1)
             close(fds[i].fd);
-
+        }
+        
         snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl.ipPortInfo[i].ipStr);
         system(cmd);
 
@@ -176,8 +173,7 @@ void *main_client_monitoring(void* args)
         }
     }
 
-
-    unregister_client(managedClient, cl.mac);
+    unregister_client(manager, cl.mac);
 
     free(fds);
     destroy_client(&cl);
@@ -247,7 +243,7 @@ int create_raw_filter_socket(const ip_port_info *ipPortInfo)
     return rawSocket;
 }
 
-void wake_up(const char *macStr)
+void wake_up(const int rawSocket, const int ifIndex, const char *macStr)
 {
     char frame[ETH_HLEN + 102];
     memset(frame, 0, ETH_HLEN + 102);
@@ -260,32 +256,18 @@ void wake_up(const char *macStr)
     struct ethhdr *eth = (struct ethhdr *) frame;
 
     memcpy(&eth->h_dest, mac_bytes, 6);
-    eth->h_proto = htons(0x0842);
+    eth->h_proto = htons(0x0842); //WoL proto
 
     memset(frame + ETH_HLEN, 0xFF, 6);
 
+    //Write magic pattern
     for (int i = 1; i <= 16; i++) {
         memcpy(frame + ETH_HLEN + i * 6, mac_bytes, 6);
     }
 
-    //Now create a one use raw socket, a raw socket, who receive nothing (proto = 0)
-    int rawSocket = socket(PF_PACKET, SOCK_RAW, 0);
-    if(rawSocket == -1)//TODO handle failed, the target will not be woke up! (extreme rare scenario)
-        return;
-
-    struct ifreq ifr;
-    memset(&ifr, 0, sizeof(ifr));
-
-    strncpy(ifr.ifr_name, "eth0", IFNAMSIZ-1);
-    if (ioctl(rawSocket, SIOCGIFINDEX, &ifr) < 0) {
-        perror("Error while gather index of the interface.");
-        close(rawSocket);
-        return;
-    }
-
     struct sockaddr_ll socket_address;
     memset(&socket_address, 0, sizeof(struct sockaddr_ll));
-    socket_address.sll_ifindex = ifr.ifr_ifindex;
+    socket_address.sll_ifindex = ifIndex;
     socket_address.sll_halen = ETH_ALEN;
     memcpy(socket_address.sll_addr, eth->h_dest, 6);
 
@@ -293,6 +275,7 @@ void wake_up(const char *macStr)
     if (sendto(rawSocket, frame, sizeof(frame), 0, (struct sockaddr*)&socket_address, sizeof(struct sockaddr_ll)) < 0) {
         perror("Error while sending the WoL packet.");
     }
+}
 
 unsigned short checksum(void *b, int len) {
     unsigned short *buf = b;

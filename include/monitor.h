@@ -6,6 +6,7 @@
 #define WAKUPATOR_MONITOR_H
 
 #include <pthread.h>
+#include <netinet/tcp.h>
 
 #include "core.h"
 
@@ -16,7 +17,7 @@ typedef enum MONITOR_ERROR {
 } MONITOR_ERROR;
 
 typedef struct main_client_args {
-    manager *managedClient;
+    manager *managerMain;
     client *client;
     pthread_mutex_t *notify;
     pthread_cond_t *cond;
@@ -27,7 +28,7 @@ void *main_client_monitoring(void* args);
 
 int create_raw_filter_socket(const ip_port_info *ipPortInfo);
 
-void wake_up(const char *macStr);
+void wake_up(int rawSocket, int ifIndex, const char *macStr);
 
 void reply_syn_ack_ipv6(int rawSocket, int ifIndex, void *packet, int size);
 
