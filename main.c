@@ -5,6 +5,8 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <signal.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
 
 #include "utils.h"
 #include "parser.h"
@@ -54,6 +56,20 @@ int wakupator_main()
 
     manager managedClient;
     init_manager(&managedClient);
+
+    managedClient.mainRawSocket = socket(PF_PACKET, SOCK_RAW, 0);
+
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof(ifr));
+
+    strncpy(ifr.ifr_name, "eth0", IFNAMSIZ-1);
+    if (ioctl(managedClient.mainRawSocket, SIOCGIFINDEX, &ifr) < 0) {
+        perror("Error while gather index of the interface.");
+        close(managedClient.mainRawSocket);
+        return 1;
+    }
+
+    managedClient.ifIndex = ifr.ifr_ifindex;
 
     printf("Wakupator ready to register clients!\n");
 
