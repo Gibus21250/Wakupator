@@ -104,12 +104,6 @@ void *main_client_monitoring(void* args)
     printf("%s thread: network activity detected.\n", cl.mac);
     printf("Client %s has been woke up\n", cl.mac);
 
-    for (int i = 0; i < nbSockCreated; ++i)
-    {
-
-    }
-    }
-
     unregister_client(manager, cl.mac);
 
     free(fds);
@@ -212,9 +206,6 @@ void wake_up(const int rawSocket, const int ifIndex, const char *macStr)
     if (sendto(rawSocket, frame, sizeof(frame), 0, (struct sockaddr*)&socket_address, sizeof(struct sockaddr_ll)) < 0) {
         perror("Error while sending the WoL packet.");
     }
-}
-
-    close(rawSocket);
 }
 
 void redirect_packet(void* packet, const char *macStr)
