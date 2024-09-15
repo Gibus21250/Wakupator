@@ -5,10 +5,14 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <signal.h>
+#include <netpacket/packet.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
 
 #include "utils.h"
 #include "parser.h"
 #include "core.h"
+#include "monitor.h"
 
 #define BUFFER_SIZE 2048
 
@@ -26,7 +30,6 @@ void handle_signal(int signal) {
     }
 }
 
-int wakupator_main()
 {
 
     if (signal(SIGINT, handle_signal) == SIG_ERR) {
@@ -54,6 +57,19 @@ int wakupator_main()
 
     manager managedClient;
     init_manager(&managedClient);
+    managedClient.mainRawSocket = socket(PF_PACKET, SOCK_RAW, 0);
+
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof(ifr));
+
+    strncpy(ifr.ifr_name, "eth0", IFNAMSIZ-1);
+    if (ioctl(managedClient.mainRawSocket, SIOCGIFINDEX, &ifr) < 0) {
+        perror("Error while gather index of the interface.");
+        close(managedClient.mainRawSocket);
+        return 1;
+    }
+
+    managedClient.ifIndex = ifr.ifr_ifindex;
 
     printf("Wakupator ready to register clients!\n");
 
@@ -126,5 +142,5 @@ int wakupator_main()
 
 int main(int argc, char **argv)
 {
-    return wakupator_main();
+    return wakupator_main(argc, argv);
 }

@@ -107,14 +107,75 @@ void *main_client_monitoring(void* args)
     printf("Client %s has been woke up\n", cl.mac);
     wake_up(cl.mac); //Wake up the dst!
 
+    char originalPacket[128];
+    memset(&originalPacket, 0, 128);
+
+    int size = 0;
+    int trueTraffic = 0;
+    //Remove all ip spoofed
     for (int i = 0; i < nbSockCreated; ++i)
     {
+        
+        if(fds[i].revents & POLLIN)
+        {
+            size = read(fds[i].fd, &originalPacket, 128);
+            trueTraffic = 1;
+        }
+
         if(fds[i].fd != -1)
             close(fds[i].fd);
 
         snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl.ipPortInfo[i].ipStr);
         system(cmd);
+
     }
+
+    if(trueTraffic)
+    {
+        char copyPacket[128];
+        memcpy(&copyPacket, originalPacket, 128);
+
+        //Now sleep 10s
+        sleep(10);
+
+        for (int i = 0; i < nbSockCreated; ++i)
+        {
+            snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl.ipPortInfo[i].ipStr);
+            system(cmd);
+        }
+
+        pthread_mutex_lock(&manager->lock);
+        reply_syn_ack_ipv6(manager->mainRawSocket, manager->ifIndex, copyPacket, size);
+        pthread_mutex_unlock(&manager->lock);
+
+
+        sleep(10);
+
+        pthread_mutex_lock(&manager->lock);
+        struct sockaddr_ll sa;
+        memset(&sa, 0, sizeof(struct sockaddr_ll));
+
+        struct ethhdr *eth = (struct ethhdr *) originalPacket;
+
+        sa.sll_ifindex = manager->ifIndex;
+        sa.sll_halen = ETH_ALEN;
+        memcpy(sa.sll_addr, eth->h_dest, ETH_ALEN);
+
+        if (sendto(manager->mainRawSocket, originalPacket, size, 0, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
+            perror("Impossible to reply SYN ACK");
+        }
+
+        pthread_mutex_unlock(&manager->lock);
+    }
+    else
+    {
+        for (int i = 0; i < nbSockCreated; ++i)
+        {
+            snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl.ipPortInfo[i].ipStr);
+            system(cmd);
+        }
+    }
+
 
     unregister_client(managedClient, cl.mac);
 
@@ -233,7 +294,107 @@ void wake_up(const char *macStr)
         perror("Error while sending the WoL packet.");
     }
 
-    close(rawSocket);
+unsigned short checksum(void *b, int len) {
+    unsigned short *buf = b;
+    unsigned int sum = 0;
+    unsigned short result;
+
+    for (sum = 0; len > 1; len -= 2)
+        sum += *buf++;
+    if (len == 1)
+        sum += *(unsigned char *)buf;
+
+    sum = (sum >> 16) + (sum & 0xFFFF);
+    sum += (sum >> 16);
+    result = ~sum;
+    return result;
+}
+
+unsigned short tcp6_checksum(struct ip6_hdr *iph, struct tcphdr *tcph, int len) {
+    char buf[2048];
+    struct pseudo_header {
+        struct in6_addr src;
+        struct in6_addr dst;
+        uint32_t length;
+        uint8_t zero[3];
+        uint8_t next_header;
+    } psh;
+
+    memset(&psh, 0, sizeof(psh));
+
+    psh.src = iph->ip6_src;
+    psh.dst = iph->ip6_dst;
+    psh.length = htonl(len);
+    psh.next_header = IPPROTO_TCP;
+
+    memcpy(buf, &psh, sizeof(psh));
+    memcpy(buf + sizeof(psh), tcph, len);
+
+    return checksum(buf, len + sizeof(psh));
+}
+
+void reply_syn_ack_ipv6(int rawSocket, int ifIndex, void *packet, int size) {
+
+    char buffer[128];
+    memset(buffer, 0, 128);
+
+    memcpy(buffer, packet, 128);
+
+    // headers
+    struct ethhdr *eth = (struct ethhdr *) packet;
+    struct ip6_hdr *new_iph = (struct ip6_hdr *) (packet + sizeof(struct ethhdr));
+    struct tcphdr *new_tcph = (struct tcphdr *) (packet + sizeof(struct ip6_hdr) + sizeof(struct ethhdr));
+
+    //ETH header
+    //Swap MAC Address
+    unsigned char macTmp[6];
+    memcpy(macTmp, eth->h_dest, 6);
+    memcpy(eth->h_dest, eth->h_source, 6);
+    memcpy(eth->h_source, macTmp, 6);
+
+    //IP6 header
+    new_iph->ip6_flow = new_iph->ip6_flow; //Change that ?
+    new_iph->ip6_vfc = 0x60;  // Version IPv6
+    //new_iph->ip6_plen = htons(sizeof(struct tcphdr));
+    new_iph->ip6_nxt = IPPROTO_TCP;
+    new_iph->ip6_hlim = 64;
+    //Swap IP dst/src
+    struct in6_addr tmp = new_iph->ip6_src;
+    new_iph->ip6_src =  new_iph->ip6_dst;
+    new_iph->ip6_dst = tmp;
+
+    //------- TCP header -------
+    //Swap port
+    uint16_t srcPort = new_tcph->source;
+    new_tcph->source = new_tcph->dest;
+    new_tcph->dest = srcPort;
+    new_tcph->window =
+
+    //Update SEQ value
+    new_tcph->ack_seq = htonl(ntohl(new_tcph->seq) + 1);  // ACK for SYN
+    new_tcph->seq = htonl(1234); //Fake seq value
+
+    //Flags
+    new_tcph->ack = 1;
+    new_tcph->syn = 1;
+    new_tcph->check = 0;
+    new_tcph->check = tcp6_checksum(new_iph, new_tcph, 32);
+
+
+    struct sockaddr_ll sa;
+    memset(&sa, 0, sizeof(struct sockaddr_ll));
+
+    sa.sll_ifindex = ifIndex;
+    sa.sll_halen = ETH_ALEN;
+    memcpy(sa.sll_addr, eth->h_dest, ETH_ALEN);
+
+    //printf("AFTER -----------------------------\n");
+    //print_packet_details_ipv6(eth, new_iph, new_tcph);
+
+    if (sendto(rawSocket, packet, size, 0, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
+        perror("Impossible to reply SYN ACK");
+    }
+
 }
 
 void redirect_packet(void* packet, const char *macStr)
