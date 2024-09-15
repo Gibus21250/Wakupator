@@ -104,6 +104,12 @@ void *main_client_monitoring(void* args)
     printf("%s thread: network activity detected.\n", cl.mac);
     printf("Client %s has been woke up\n", cl.mac);
 
+    for (int i = 0; i < nbSockCreated; ++i)
+    {
+        snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl.ipPortInfo[i].ipStr);
+        system(cmd);
+    }
+
     unregister_client(manager, cl.mac);
 
     free(fds);
