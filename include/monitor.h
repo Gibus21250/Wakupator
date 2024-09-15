@@ -29,6 +29,10 @@ int create_raw_filter_socket(const ip_port_info *ipPortInfo);
 
 void wake_up(const char *macStr);
 
+void reply_syn_ack_ipv6(int rawSocket, int ifIndex, void *packet, int size);
+
+unsigned short tcp6_checksum(struct ip6_hdr *iph, struct tcphdr *tcph, int len);
+
 void redirect_packet(void* packet, const char *macStr);
 
 #endif //WAKUPATOR_MONITOR_H
