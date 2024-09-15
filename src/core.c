@@ -152,23 +152,23 @@ MANAGER_CODE register_client(manager *mng_client, client *newClient)
     return MANAGER_OK;
 }
 
-void unregister_client(struct manager *mng_client, char* strMac)
+void unregister_client(struct manager *mng, char* strMac)
 {
-    pthread_mutex_lock(&mng_client->lock);
+    pthread_mutex_lock(&mng->lock);
 
-    for (int i = 0; i < mng_client->count; ++i) {
+    for (int i = 0; i < mng->count; ++i) {
         //if we found the client
-        if(strcasecmp(strMac, mng_client->clientThreadInfos[i].mac) == 0)
+        if(strcasecmp(strMac, mng->clientThreadInfos[i].mac) == 0)
         {
             //shift all thread_client_info to the left starting this index
-            for (int j = i; j < mng_client->count-1; ++j)
-                mng_client->clientThreadInfos[j] = mng_client->clientThreadInfos[(j+1)];
+            for (int j = i; j < mng->count-1; ++j)
+                mng->clientThreadInfos[j] = mng->clientThreadInfos[(j+1)];
 
-            mng_client->count--;
+            mng->count--;
             break;
         }
     }
-    pthread_mutex_unlock(&mng_client->lock);
+    pthread_mutex_unlock(&mng->lock);
 }
 
 const char* get_monitor_error(MANAGER_CODE code)

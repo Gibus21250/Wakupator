@@ -30,6 +30,8 @@ typedef struct manager {
     uint32_t count;             //number of client monitored identified by mac address
     thread_monitor_info *clientThreadInfos;
     pthread_mutex_t lock;       //lock used when adding or removing client
+    int mainRawSocket;          //Raw socket used by thread to send packets
+    int ifIndex;
     int notify[2];              //Pipe used to unlock all thread
 } manager;
 

@@ -16,7 +16,7 @@ typedef enum MONITOR_ERROR {
 } MONITOR_ERROR;
 
 typedef struct main_client_args {
-    manager *managedClient;
+    manager *managerMain;
     client *client;
     pthread_mutex_t *notify;
     pthread_cond_t *cond;
