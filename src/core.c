@@ -179,5 +179,7 @@ const char* get_monitor_error(MANAGER_CODE code)
         case MANAGER_MAC_ADDRESS_ALREADY_MONITORED: return "A client with this MAC address is already monitored.";
         case MANAGER_THREAD_CREATION_ERROR: return "Intern error while creating thread monitor.";
         case MANAGER_THREAD_INIT_ERROR: return "Error while init information for the thread monitor.";
+        case MANAGER_HOST_OUT_OF_MEMORY: return "Host Out Of Memory.";
     }
+    return "";
 }
