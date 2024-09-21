@@ -10,7 +10,7 @@
 
 #include "parser.h"
 
-CLIENT_PARSING_CODE parse_from_json(const char *json_raw, client* client)
+REGISTER_CODE parse_from_json(const char *json_raw, client* client)
 {
     cJSON *json = cJSON_Parse(json_raw);
     if (json == NULL)
@@ -57,7 +57,7 @@ CLIENT_PARSING_CODE parse_from_json(const char *json_raw, client* client)
     if(client->ipPortInfo == NULL)
     {
         cJSON_Delete(json);
-        return PARSING_OUT_OF_MEMORY;
+        return OUT_OF_MEMORY;
     }
 
     //For each ip:[ports] object
@@ -93,7 +93,7 @@ CLIENT_PARSING_CODE parse_from_json(const char *json_raw, client* client)
         {
             destroy_client(client);
             cJSON_Delete(json);
-            return PARSING_OUT_OF_MEMORY;
+            return OUT_OF_MEMORY;
         }
 
         strcpy(client->ipPortInfo[i].ipStr, ip->valuestring);
@@ -124,7 +124,7 @@ CLIENT_PARSING_CODE parse_from_json(const char *json_raw, client* client)
         {
             destroy_client(client);
             cJSON_Delete(json);
-            return PARSING_OUT_OF_MEMORY;
+            return OUT_OF_MEMORY;
         }
 
         //For each port
@@ -151,7 +151,7 @@ CLIENT_PARSING_CODE parse_from_json(const char *json_raw, client* client)
     }
 
     cJSON_Delete(json);
-    return PARSING_OK;
+    return OK;
 }
 
 int verify_mac_format(const char *strMac)
@@ -173,17 +173,4 @@ int verify_mac_format(const char *strMac)
     }
 
     return 0;
-}
-
-const char* get_parser_error(CLIENT_PARSING_CODE code)
-{
-    switch (code)
-    {
-        case PARSING_OK: return "OK.";
-        case PARSING_CJSON_ERROR: return "An error was find in the JSON. Please verify types, keynames and structure.";
-        case PARSING_INVALID_MAC_ADDRESS: return "Invalid MAC address format.";
-        case PARSING_INVALID_IP_ADDRESS: return "Invalid IP address format.";
-        case PARSING_INVALID_PORT: return "Invalid port value.";
-        case PARSING_OUT_OF_MEMORY: return "Out of memory on the host.";
-    }
 }

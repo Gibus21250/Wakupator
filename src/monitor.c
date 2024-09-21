@@ -34,7 +34,7 @@ void *main_client_monitoring(void* args)
     if(fds == NULL)
     {
         pthread_mutex_lock(mainClientArgs->notify);
-        mainClientArgs->error = 1;
+        mainClientArgs->error = OUT_OF_MEMORY;
         pthread_cond_signal(mainClientArgs->cond);
         pthread_mutex_unlock(mainClientArgs->notify);
         return NULL;
@@ -57,7 +57,7 @@ void *main_client_monitoring(void* args)
                 snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl.ipPortInfo[k].ipStr);
             }
             pthread_mutex_lock(mainClientArgs->notify);
-            mainClientArgs->error = 1;
+            mainClientArgs->error = MONITOR_RAW_SOCKET_CREATION_ERROR;
             pthread_cond_signal(mainClientArgs->cond);
             pthread_mutex_unlock(mainClientArgs->notify);
             free(fds);
@@ -73,7 +73,7 @@ void *main_client_monitoring(void* args)
                 snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl.ipPortInfo[k].ipStr);
             }
             pthread_mutex_lock(mainClientArgs->notify);
-            mainClientArgs->error = 1;
+            mainClientArgs->error = MONITOR_IP_ALREADY_USED;
             pthread_cond_signal(mainClientArgs->cond);
             pthread_mutex_unlock(mainClientArgs->notify);
             free(fds);
@@ -95,10 +95,11 @@ void *main_client_monitoring(void* args)
     //------------ Notify the master that everything is OK ------------
     pthread_mutex_lock(mainClientArgs->notify);
     pthread_cond_signal(mainClientArgs->cond);
+    mainClientArgs->error = OK;
     pthread_mutex_unlock(mainClientArgs->notify);
 
     printf("%s thread: Waiting for network activity.\n", cl.mac);
-    poll(fds, nbSockCreated+1, -1);
+    poll(fds, nbSockCreated+1, -1); //Waiting traffic
     wake_up(manager->mainRawSocket, manager->ifIndex,cl.mac); //Wake up the dst!
 
     printf("%s thread: network activity detected.\n", cl.mac);

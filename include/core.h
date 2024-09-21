@@ -12,13 +12,28 @@
 
 #include "client.h"
 
-typedef enum MANAGER_CODE {
-    MANAGER_OK = 0,
+typedef enum REGISTER_CODE {
+    OK = 0,
+    OUT_OF_MEMORY,
+
+    //Parsing error code
+    PARSING_CJSON_ERROR,
+    PARSING_INVALID_MAC_ADDRESS,
+    PARSING_INVALID_IP_ADDRESS,
+    PARSING_INVALID_PORT,
+
+    //Manager error
     MANAGER_MAC_ADDRESS_ALREADY_MONITORED,
-    MANAGER_HOST_OUT_OF_MEMORY,
     MANAGER_THREAD_CREATION_ERROR,
-    MANAGER_THREAD_INIT_ERROR
-} MANAGER_CODE;
+    MANAGER_THREAD_INIT_TIMEOUT,
+    MANAGER_THREAD_INIT_ERROR,
+
+    //Thread monitor error
+    MONITOR_DAD_ERROR, //Duplicate Addr Detection
+    MONITOR_RAW_SOCKET_CREATION_ERROR,
+    MONITOR_IP_ALREADY_USED
+
+} REGISTER_CODE;
 
 typedef struct thread_monitor_info {
     char mac[18];
@@ -38,9 +53,9 @@ typedef struct manager {
 void init_manager(struct manager *mng_client);
 void destroy_manager(struct manager *mng_client);
 
-MANAGER_CODE register_client(struct manager *mng_client, client *newClient);
+REGISTER_CODE register_client(struct manager *mng_client, client *newClient);
 void unregister_client(struct manager *mng_client, char* strMac);
 
-const char* get_monitor_error(MANAGER_CODE code);
+const char* get_register_error(REGISTER_CODE code);
 
 #endif //WAKUPATOR_CORE_H

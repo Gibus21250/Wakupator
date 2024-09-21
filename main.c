@@ -19,7 +19,7 @@ int server_fd = -1;
 void handle_signal(int signal) {
     if (signal == SIGINT || signal == SIGTERM ||signal == SIGQUIT || signal == SIGABRT)
     {
-        printf("\nSignal SIGINT catched, wake up all client\n");
+        printf("\nSignal caught\n");
 
         if (server_fd != -1) {
             close(server_fd);
@@ -54,22 +54,29 @@ int wakupator_main()
         return EXIT_FAILURE;
     }
 
-    manager managedClient;
-    init_manager(&managedClient);
+    manager manager;
+    init_manager(&manager);
 
-    managedClient.mainRawSocket = socket(PF_PACKET, SOCK_RAW, 0);
+    manager.mainRawSocket = socket(PF_PACKET, SOCK_RAW, 0);
+
+    if(manager.mainRawSocket == -1)
+    {
+        perror("Error while creating the main raw socket.");
+    }
 
     struct ifreq ifr;
     memset(&ifr, 0, sizeof(ifr));
 
-    strncpy(ifr.ifr_name, "eth0", IFNAMSIZ-1);
-    if (ioctl(managedClient.mainRawSocket, SIOCGIFINDEX, &ifr) < 0) {
+    char *name = "eth0";
+
+    strncpy(ifr.ifr_name, name, IFNAMSIZ-1);
+    if (ioctl(manager.mainRawSocket, SIOCGIFINDEX, &ifr) < 0) {
         perror("Error while gather index of the interface.");
-        close(managedClient.mainRawSocket);
         return 1;
     }
 
-    managedClient.ifIndex = ifr.ifr_ifindex;
+    manager.ifIndex = ifr.ifr_ifindex;
+    manager.itName = name;
 
     printf("Wakupator ready to register clients!\n");
 
@@ -97,10 +104,10 @@ int wakupator_main()
         client cl;
         const char *message;
 
-        CLIENT_PARSING_CODE code = parse_from_json(buffer, &cl);
+        REGISTER_CODE code = parse_from_json(buffer, &cl);
 
-        if(code != PARSING_OK) {
-            message = get_parser_error(code);
+        if(code != OK) {
+            message = get_register_error(code);
             write(client_fd, message, strlen(message)+1);
             close(client_fd);
             continue;
@@ -108,12 +115,12 @@ int wakupator_main()
 
         printf("Parsing OK\n");
 
-        MANAGER_CODE res =  register_client(&managedClient, &cl);
+        REGISTER_CODE res =  register_client(&manager, &cl);
 
-        message = get_monitor_error(res);
+        message = get_register_error(res);
         write(client_fd, message, strlen(message)+1);
 
-        if(res != MANAGER_OK) {
+        if(res != OK) {
             close(client_fd);
             printf("Failed to register the client: %s\n", message);
             destroy_client(&cl);
@@ -135,7 +142,7 @@ int wakupator_main()
     if(server_fd != -1)
         close(server_fd);
 
-    destroy_manager(&managedClient);
+    destroy_manager(&manager);
 
     return 0;
 }

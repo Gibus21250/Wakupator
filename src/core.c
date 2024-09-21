@@ -54,7 +54,7 @@ void destroy_manager(struct manager *mng_client)
 
 }
 
-MANAGER_CODE register_client(manager *mng_client, client *newClient)
+REGISTER_CODE register_client(manager *mng_client, client *newClient)
 {
     //Lock the struct
     pthread_mutex_lock(&mng_client->lock);
@@ -78,7 +78,7 @@ MANAGER_CODE register_client(manager *mng_client, client *newClient)
             mng_client->bufferSize += BUFFER_GROW_STEP;
         } else {
             pthread_mutex_unlock(&mng_client->lock);
-            return MANAGER_HOST_OUT_OF_MEMORY;
+            return OUT_OF_MEMORY;
         }
     }
 
@@ -103,7 +103,7 @@ MANAGER_CODE register_client(manager *mng_client, client *newClient)
     pthread_t child;
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 999999; //more than 1 second to launch the thread is like an error
+    timeout.tv_sec += 1; //more than 1 second to launch the thread is like an error
 
     //Now we can register this client
     if(pthread_create(&child, NULL, main_client_monitoring, (void*) &args))
@@ -124,11 +124,11 @@ MANAGER_CODE register_client(manager *mng_client, client *newClient)
         pthread_cond_destroy(&cond);
         pthread_cancel(child); //Tell the child to cleanly abort
         pthread_mutex_unlock(&mng_client->lock);
-        return MANAGER_THREAD_CREATION_ERROR;
+        return MANAGER_THREAD_INIT_TIMEOUT;
     }
 
     //Check if no execution error during execution of the child thread
-    if(args.error != 0)
+    if(args.error != OK)
     {
         pthread_mutex_unlock(&mutex);
         pthread_join(child, NULL);
@@ -149,7 +149,7 @@ MANAGER_CODE register_client(manager *mng_client, client *newClient)
 
     pthread_mutex_unlock(&mng_client->lock);
 
-    return MANAGER_OK;
+    return OK;
 }
 
 void unregister_client(struct manager *mng, char* strMac)
@@ -171,15 +171,26 @@ void unregister_client(struct manager *mng, char* strMac)
     pthread_mutex_unlock(&mng->lock);
 }
 
-const char* get_monitor_error(MANAGER_CODE code)
+const char* get_register_error(REGISTER_CODE code)
 {
     switch (code)
     {
-        case MANAGER_OK: return "OK.";
+        case OK: return "OK.";
+        case OUT_OF_MEMORY: return "Out of memory on the host.";
+
+        case PARSING_CJSON_ERROR: return "An error was find in the JSON. Please verify types, keynames and structure.";
+        case PARSING_INVALID_MAC_ADDRESS: return "Invalid MAC address format.";
+        case PARSING_INVALID_IP_ADDRESS: return "Invalid IP address format.";
+        case PARSING_INVALID_PORT: return "Invalid port value.";
+
         case MANAGER_MAC_ADDRESS_ALREADY_MONITORED: return "A client with this MAC address is already monitored.";
         case MANAGER_THREAD_CREATION_ERROR: return "Intern error while creating thread monitor.";
         case MANAGER_THREAD_INIT_ERROR: return "Error while init information for the thread monitor.";
-        case MANAGER_HOST_OUT_OF_MEMORY: return "Host Out Of Memory.";
+        case MANAGER_THREAD_INIT_TIMEOUT: return "Thread's initializing state took too much time.";
+
+        case MONITOR_DAD_ERROR: return "Impossible to temporally disable IPv6 Duplicate Address Detector.";
+        case MONITOR_RAW_SOCKET_CREATION_ERROR: return "Error while creating raw socket for the client.";
+        case MONITOR_IP_ALREADY_USED: return "A client have already register an IP";
     }
     return "";
 }
