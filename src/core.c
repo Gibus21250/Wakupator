@@ -219,6 +219,7 @@ const char* get_register_error(REGISTER_CODE code)
 
         case PARSING_CJSON_ERROR: return "An error was find in the JSON. Please verify types, keynames and structure.";
         case PARSING_INVALID_MAC_ADDRESS: return "Invalid MAC address format.";
+        case PARSING_DUPLICATED_IP_ADDRESS: return "Duplicated IP asked.";
         case PARSING_INVALID_IP_ADDRESS: return "Invalid IP address format.";
         case PARSING_INVALID_PORT: return "Invalid port value.";
 

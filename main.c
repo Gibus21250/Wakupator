@@ -109,6 +109,7 @@ int wakupator_main()
         if(code != OK) {
             message = get_register_error(code);
             write(client_fd, message, strlen(message)+1);
+            printf("Failed to register the client: %s\n", message);
             close(client_fd);
             continue;
         }

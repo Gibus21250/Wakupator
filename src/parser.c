@@ -16,9 +16,6 @@ REGISTER_CODE parse_from_json(const char *json_raw, client* client)
     if (json == NULL)
         return PARSING_CJSON_ERROR;
 
-    char rawIpStorage_Temp[16];
-
-
     //Init the client struct
     client->mac[0] = 0;
     client->ipPortInfo = NULL;
@@ -60,7 +57,7 @@ REGISTER_CODE parse_from_json(const char *json_raw, client* client)
         return OUT_OF_MEMORY;
     }
 
-    //For each ip:[ports] object
+    //Check uniqueness of IPs
     for (int i = 0; i < monitor_count; ++i)
     {
         cJSON *monitor_item = cJSON_GetArrayItem(monitor_array, i);
@@ -70,8 +67,38 @@ REGISTER_CODE parse_from_json(const char *json_raw, client* client)
         {
             destroy_client(client);
             cJSON_Delete(json);
-            return PARSING_CJSON_ERROR;
+            return PARSING_INVALID_IP_ADDRESS;
         }
+
+        for (int j = i+1; j < monitor_count; ++j)
+        {
+            cJSON *monitor_item2 = cJSON_GetArrayItem(monitor_array, j);
+            cJSON *ip2 = cJSON_GetObjectItemCaseSensitive(monitor_item2, "ip");
+
+            if (!cJSON_IsString(ip2) && (ip2->valuestring == NULL))
+            {
+                destroy_client(client);
+                cJSON_Delete(json);
+                return PARSING_INVALID_IP_ADDRESS;
+            }
+
+            //Same IP asked in 2 different monitor object
+            if(strcmp(ip->valuestring, ip2->valuestring) == 0)
+            {
+                destroy_client(client);
+                cJSON_Delete(json);
+                return PARSING_DUPLICATED_IP_ADDRESS;
+            }
+        }
+    }
+
+    char rawIpStorage_Temp[16];
+
+    //For each ip:[ports] object
+    for (int i = 0; i < monitor_count; ++i)
+    {
+        cJSON *monitor_item = cJSON_GetArrayItem(monitor_array, i);
+        cJSON *ip = cJSON_GetObjectItemCaseSensitive(monitor_item, "ip");
 
         int AF = strchr(ip->valuestring, ':') != 0?AF_INET6:AF_INET;
 
