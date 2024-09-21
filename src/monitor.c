@@ -42,7 +42,18 @@ void *main_client_monitoring(void* args)
 
     char cmd[256];
 
+    snprintf(cmd, sizeof(cmd), "sudo sysctl -w net.ipv6.conf.%s.accept_dad=0", manager->itName);
+    if(system(cmd)) //Temporary disable dad ipv6 to spoof ipv6
+    {
+        pthread_mutex_lock(mainClientArgs->notify);
+        mainClientArgs->error = MONITOR_DAD_ERROR;
+        pthread_cond_signal(mainClientArgs->cond);
+        pthread_mutex_unlock(mainClientArgs->notify);
+        free(fds);
+    }
+
     uint32_t nbSockCreated = 0;
+    uint32_t nbIpSpoofed = 0;
 
     //Create all socket needed: on per group IP/ports
     for (uint32_t i = 0; i < cl.countIp; ++i) {
@@ -52,10 +63,17 @@ void *main_client_monitoring(void* args)
 
         if(sock == -1) //Error
         {
-            for (uint32_t k = 0; k < nbSockCreated; ++k) {
+            for (uint32_t k = 0; k < nbSockCreated; ++k)
                 close(fds[k].fd);
-                snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl.ipPortInfo[k].ipStr);
+
+            for (int j = 0; j < nbIpSpoofed; ++j) {
+                snprintf(cmd, sizeof(cmd), "sudo ip a del %s dev %s", cl.ipPortInfo[j].ipStr, manager->itName);
+                system(cmd);
             }
+
+            snprintf(cmd, sizeof(cmd), "sudo sysctl -w net.ipv6.conf.%s.accept_dad=1", manager->itName);
+            system(cmd); //enable DAD
+
             pthread_mutex_lock(mainClientArgs->notify);
             mainClientArgs->error = MONITOR_RAW_SOCKET_CREATION_ERROR;
             pthread_cond_signal(mainClientArgs->cond);
@@ -64,20 +82,26 @@ void *main_client_monitoring(void* args)
             return NULL;
         }
         //Adding the IP to the host
-        snprintf(cmd, sizeof(cmd), "ip a add %s dev eth0", info->ipStr);
+        snprintf(cmd, sizeof(cmd), "sudo ip a add %s dev %s", info->ipStr, manager->itName);
 
-        if(system(cmd))
+        if(system(cmd)) //Error while creating IP
         {
-            for (uint32_t k = 0; k < nbSockCreated; ++k) {
+            for (uint32_t k = 0; k < nbSockCreated; ++k)
                 close(fds[k].fd);
-                snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl.ipPortInfo[k].ipStr);
+
+            for (int j = 0; j < nbIpSpoofed; ++j) {
+                snprintf(cmd, sizeof(cmd), "sudo ip a del %s dev %s", cl.ipPortInfo[j].ipStr, manager->itName);
+                system(cmd);
             }
+
+            snprintf(cmd, sizeof(cmd), "sudo sysctl -w net.ipv6.conf.%s.accept_dad=1", manager->itName);
+            system(cmd); //enable DAD
+
             pthread_mutex_lock(mainClientArgs->notify);
             mainClientArgs->error = MONITOR_IP_ALREADY_USED;
             pthread_cond_signal(mainClientArgs->cond);
             pthread_mutex_unlock(mainClientArgs->notify);
             free(fds);
-            //IP is already used, of other reason
             return NULL;
         }
 
@@ -87,6 +111,9 @@ void *main_client_monitoring(void* args)
         nbSockCreated++;
 
     }
+
+    snprintf(cmd, sizeof(cmd), "sudo sysctl -w net.ipv6.conf.%s.accept_dad=1", manager->itName);
+    system(cmd); //enable DAD
 
     //Adding at the last the pipe for handling master notification (close socket from a pollfd seems to not unlock the thread)
     fds[nbSockCreated].fd = manager->notify[0];
@@ -98,6 +125,8 @@ void *main_client_monitoring(void* args)
     mainClientArgs->error = OK;
     pthread_mutex_unlock(mainClientArgs->notify);
 
+    //------------ Waiting for traffic ------------
+
     printf("%s thread: Waiting for network activity.\n", cl.mac);
     poll(fds, nbSockCreated+1, -1); //Waiting traffic
     wake_up(manager->mainRawSocket, manager->ifIndex,cl.mac); //Wake up the dst!
@@ -107,7 +136,7 @@ void *main_client_monitoring(void* args)
 
     for (int i = 0; i < nbSockCreated; ++i)
     {
-        snprintf(cmd, sizeof(cmd), "ip a del %s dev eth0", cl.ipPortInfo[i].ipStr);
+        snprintf(cmd, sizeof(cmd), "sudo ip a del %s dev %s", cl.ipPortInfo[i].ipStr, manager->itName);
         system(cmd);
     }
 
@@ -213,9 +242,4 @@ void wake_up(const int rawSocket, const int ifIndex, const char *macStr)
     if (sendto(rawSocket, frame, sizeof(frame), 0, (struct sockaddr*)&socket_address, sizeof(struct sockaddr_ll)) < 0) {
         perror("Error while sending the WoL packet.");
     }
-}
-
-void redirect_packet(void* packet, const char *macStr)
-{
-
 }
