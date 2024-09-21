@@ -84,6 +84,11 @@ REGISTER_CODE register_client(manager *mng_client, client *newClient)
 
     uint32_t index = mng_client->count;
 
+    //Init thread's notify stuff
+    pthread_mutex_init(&mng_client->clientThreadInfos[index].mutex, NULL);
+    pthread_cond_init(&mng_client->clientThreadInfos[index].cond, NULL);
+
+    //Setup notify stuff for this thread
     pthread_mutex_t mutex;
     pthread_cond_t cond;
 
@@ -96,24 +101,33 @@ REGISTER_CODE register_client(manager *mng_client, client *newClient)
             newClient,
             &mutex,
             &cond,
-            0
+            0,
+            &mng_client->clientThreadInfos[index].mutex,
+            &mng_client->clientThreadInfos[index].cond
     };
 
+    //Lock this thread's mutex
     pthread_mutex_lock(&mutex);
     pthread_t child;
-    struct timespec timeout;
-    clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 1; //more than 1 second to launch the thread is like an error
 
-    //Now we can register this client
+    //Now we can start the thread who going to monitor the client
     if(pthread_create(&child, NULL, main_client_monitoring, (void*) &args))
     {
         pthread_mutex_unlock(&mutex);
+
         pthread_mutex_destroy(&mutex);
         pthread_cond_destroy(&cond);
+
+        pthread_mutex_destroy(&mng_client->clientThreadInfos[index].mutex);
+        pthread_cond_destroy(&mng_client->clientThreadInfos[index].cond);
+
         pthread_mutex_unlock(&mng_client->lock);
         return MANAGER_THREAD_CREATION_ERROR;
     }
+
+    struct timespec timeout;
+    clock_gettime(CLOCK_REALTIME, &timeout);
+    timeout.tv_sec += 99999; //more than 1 second to launch the thread is like an error
 
     //Wait a notification from the child thread, and this can time out
     //This call implicit atomically unlock the mutex, and lock it again after execution
@@ -122,6 +136,8 @@ REGISTER_CODE register_client(manager *mng_client, client *newClient)
         pthread_mutex_unlock(&mutex);
         pthread_mutex_destroy(&mutex);
         pthread_cond_destroy(&cond);
+        pthread_mutex_destroy(&mng_client->clientThreadInfos[index].mutex);
+        pthread_cond_destroy(&mng_client->clientThreadInfos[index].cond);
         pthread_cancel(child); //Tell the child to cleanly abort
         pthread_mutex_unlock(&mng_client->lock);
         return MANAGER_THREAD_INIT_TIMEOUT;
@@ -134,6 +150,8 @@ REGISTER_CODE register_client(manager *mng_client, client *newClient)
         pthread_join(child, NULL);
         pthread_mutex_destroy(&mutex);
         pthread_cond_destroy(&cond);
+        pthread_mutex_destroy(&mng_client->clientThreadInfos[index].mutex);
+        pthread_cond_destroy(&mng_client->clientThreadInfos[index].cond);
         pthread_mutex_unlock(&mng_client->lock);
         return MANAGER_THREAD_INIT_ERROR;
     }
@@ -160,11 +178,32 @@ void unregister_client(struct manager *mng, char* strMac)
         //if we found the client
         if(strcasecmp(strMac, mng->clientThreadInfos[i].mac) == 0)
         {
+            //Clean monitor's notify stuff
+            pthread_mutex_destroy(&mng->clientThreadInfos[i].mutex);
+            pthread_cond_destroy(&mng->clientThreadInfos[i].cond);
             //shift all thread_client_info to the left starting this index
             for (int j = i; j < mng->count-1; ++j)
                 mng->clientThreadInfos[j] = mng->clientThreadInfos[(j+1)];
 
             mng->count--;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&mng->lock);
+}
+
+void start_monitoring(struct manager *mng, const char* macClient)
+{
+    pthread_mutex_lock(&mng->lock);
+
+    for (int i = 0; i < mng->count; ++i) {
+
+        if(strcasecmp(macClient, mng->clientThreadInfos[i].mac) == 0)
+        {
+            //Notify the thread to start!
+            pthread_mutex_lock(&mng->clientThreadInfos[i].mutex);
+            pthread_cond_signal(&mng->clientThreadInfos[i].cond);
+            pthread_mutex_unlock(&mng->clientThreadInfos[i].mutex);
             break;
         }
     }

@@ -16,6 +16,8 @@ typedef struct main_client_args {
     pthread_mutex_t *notify;
     pthread_cond_t *cond;
     char error;
+    pthread_mutex_t *selfNotify;
+    pthread_cond_t *selfCond;
 } main_client_args;
 
 void *main_client_monitoring(void* args);

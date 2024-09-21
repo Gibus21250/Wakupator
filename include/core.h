@@ -38,6 +38,8 @@ typedef enum REGISTER_CODE {
 typedef struct thread_monitor_info {
     char mac[18];
     pthread_t thread;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
 } thread_monitor_info;
 
 typedef struct manager {
@@ -56,6 +58,8 @@ void destroy_manager(struct manager *mng_client);
 
 REGISTER_CODE register_client(struct manager *mng_client, client *newClient);
 void unregister_client(struct manager *mng_client, char* strMac);
+
+void start_monitoring(struct manager *mng_client, const char* macClient);
 
 const char* get_register_error(REGISTER_CODE code);
 

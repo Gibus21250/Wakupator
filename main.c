@@ -115,17 +115,20 @@ int wakupator_main()
 
         printf("Parsing OK\n");
 
-        REGISTER_CODE res =  register_client(&manager, &cl);
+        REGISTER_CODE res = register_client(&manager, &cl);
 
         message = get_register_error(res);
         write(client_fd, message, strlen(message)+1);
+        close(client_fd); //close fd => close tcp
 
         if(res != OK) {
-            close(client_fd);
             printf("Failed to register the client: %s\n", message);
             destroy_client(&cl);
             continue;
         }
+
+        //Notify the monitor thread to spoof IPs and start monitoring
+        start_monitoring(&manager, cl.mac);
 
         printf("Successfully register new client: %s, on\n", cl.mac);
         for (int i = 0; i < cl.countIp; ++i) {
