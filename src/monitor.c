@@ -26,7 +26,18 @@ void *main_client_monitoring(void* args)
     //Shallow copy of the client
     struct client cl = *mainClientArgs->client;
 
-    printf("Thread Start to monitor %s\n", cl.mac);
+    printf("Init monitor thread for %s\n", cl.mac);
+
+    //Manually verify IP
+    int code = verify_ips(&cl);
+    if(code != OK)
+    {
+        pthread_mutex_lock(mainClientArgs->notify);
+        mainClientArgs->error = code;
+        pthread_cond_signal(mainClientArgs->cond);
+        pthread_mutex_unlock(mainClientArgs->notify);
+        return NULL;
+    }
 
     //+1 to handle notify on the pipe output of the master thread
     struct pollfd *fds = (struct pollfd*) calloc(cl.countIp + 1, sizeof(struct pollfd));
@@ -129,6 +140,33 @@ void *main_client_monitoring(void* args)
     free(fds);
     destroy_client(&cl);
     return NULL;
+}
+
+int verify_ips(const client *cl)
+{
+    char cmd[128];
+    char buffer[1024];
+    FILE *fp;
+
+    for (int i = 0; i < cl->countIp; ++i) {
+
+
+    snprintf(cmd, sizeof(cmd), "sudo ip a | grep -w %s", cl->ipPortInfo->ipStr);
+
+    fp = popen(cmd, "r");
+    if (fp == NULL) {
+        return MONITOR_CHECK_IP_ERROR;
+    }
+
+    if (fgets(buffer, sizeof(buffer), fp) != NULL) {
+        pclose(fp);
+        return MONITOR_IP_ALREADY_USED;
+    }
+
+    pclose(fp);
+
+    }
+    return OK;
 }
 
 int create_raw_filter_socket(const ip_port_info *ipPortInfo)

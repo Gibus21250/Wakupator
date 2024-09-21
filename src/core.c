@@ -153,7 +153,7 @@ REGISTER_CODE register_client(manager *mng_client, client *newClient)
         pthread_mutex_destroy(&mng_client->clientThreadInfos[index].mutex);
         pthread_cond_destroy(&mng_client->clientThreadInfos[index].cond);
         pthread_mutex_unlock(&mng_client->lock);
-        return MANAGER_THREAD_INIT_ERROR;
+        return args.error;
     }
 
     //Finally, everything is ok
@@ -228,8 +228,9 @@ const char* get_register_error(REGISTER_CODE code)
         case MANAGER_THREAD_INIT_TIMEOUT: return "Thread's initializing state took too much time.";
 
         case MONITOR_DAD_ERROR: return "Impossible to temporally disable IPv6 Duplicate Address Detector.";
+        case MONITOR_CHECK_IP_ERROR: return "Error while executing command to check IP duplication.";
         case MONITOR_RAW_SOCKET_CREATION_ERROR: return "Error while creating raw socket for the client.";
-        case MONITOR_IP_ALREADY_USED: return "A client have already register an IP";
+        case MONITOR_IP_ALREADY_USED: return "A client have already register one of IPs asked.";
     }
     return "";
 }

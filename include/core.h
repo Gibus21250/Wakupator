@@ -30,6 +30,7 @@ typedef enum REGISTER_CODE {
 
     //Thread monitor error
     MONITOR_DAD_ERROR, //Duplicate Addr Detection
+    MONITOR_CHECK_IP_ERROR,
     MONITOR_RAW_SOCKET_CREATION_ERROR,
     MONITOR_IP_ALREADY_USED
 

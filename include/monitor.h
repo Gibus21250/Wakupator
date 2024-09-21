@@ -24,6 +24,8 @@ void *main_client_monitoring(void* args);
 
 int create_raw_filter_socket(const ip_port_info *ipPortInfo);
 
+int verify_ips(const client *cl);
+
 void wake_up(int rawSocket, int ifIndex, const char *macStr);
 
 #endif //WAKUPATOR_MONITOR_H
