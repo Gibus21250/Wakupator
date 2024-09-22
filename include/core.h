@@ -63,6 +63,8 @@ void unregister_client(struct manager *mng_client, char* strMac);
 
 void start_monitoring(struct manager *mng_client, const char* macClient);
 
+char *get_client_str_info(const client *cl);
+
 const char* get_register_error(REGISTER_CODE code);
 
 #endif //WAKUPATOR_CORE_H

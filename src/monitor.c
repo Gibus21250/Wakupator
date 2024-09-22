@@ -16,6 +16,7 @@
 #include "utils.h"
 #include "monitor.h"
 #include "bpf_utils.h"
+#include "logger.h"
 
 void *main_client_monitoring(void* args)
 {
@@ -26,7 +27,7 @@ void *main_client_monitoring(void* args)
     //Shallow copy of the client
     struct client cl = *mainClientArgs->client;
 
-    printf("Init monitor thread for %s\n", cl.mac);
+    log_debug("Init monitor thread for %s\n", cl.mac);
 
     //Manually verify IP
     int code = verify_ips(&cl);
@@ -122,12 +123,11 @@ void *main_client_monitoring(void* args)
 
     //------------ Waiting for traffic ------------
 
-    printf("%s thread: Waiting for network activity.\n", cl.mac);
+    log_debug("%s thread: Waiting for network activity.\n", cl.mac);
     poll(fds, nbSockCreated+1, -1); //Waiting traffic
     wake_up(manager->mainRawSocket, manager->ifIndex,cl.mac); //Wake up the dst!
 
-    printf("%s thread: network activity detected.\n", cl.mac);
-    printf("Client %s has been woke up\n", cl.mac);
+    log_info("Client %s: traffic detected, woken up.\n", cl.mac);
 
     //remove all IP spoofed
     for (int j = 0; j < cl.countIp; ++j) {

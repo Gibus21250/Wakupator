@@ -21,6 +21,4 @@
  */
 int init_socket(const char *ip, int port, int sockType, int protocol, struct sockaddr_storage* storeAddrInfo);
 void print_packet_details_ipv6(struct ethhdr *eth, struct ip6_hdr *ip6, struct tcphdr *tcp);
-
-void wake_up_on_lan(const char* mac, int proto);
 #endif //WAKUPATOR_UTILS_H

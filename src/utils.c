@@ -12,7 +12,6 @@ int init_socket(const char *ip, int port, int sockType, int protocol, struct soc
     int sock = socket(AF, sockType, protocol);
 
     if (sock == -1) {
-        perror("Error while creating the server socket!\n");
         return -1;
     }
 
@@ -23,7 +22,6 @@ int init_socket(const char *ip, int port, int sockType, int protocol, struct soc
         saddr->sin_port = htons(port);
         memset(&saddr->sin_zero, 0, sizeof(saddr->sin_zero));
         if (inet_pton(AF_INET, ip, &(saddr->sin_addr)) != 1) {
-            perror("Error while writing IPv4 address in sockaddr\n");
             close(sock);
             return -1;
         }
@@ -36,7 +34,6 @@ int init_socket(const char *ip, int port, int sockType, int protocol, struct soc
         saddr->sin6_flowinfo = 0;
         saddr->sin6_scope_id = 0;
         if(inet_pton(AF_INET6, ip, &(saddr->sin6_addr)) != 1) {
-            perror("Error while writing IPv6 address in sockaddr\n");
             close(sock);
             return -1;
         }

@@ -15,6 +15,7 @@
 
 #include "core.h"
 #include "monitor.h"
+#include "logger.h"
 
 void init_manager(struct manager *mng_client)
 {
@@ -31,18 +32,19 @@ void destroy_manager(struct manager *mng_client)
     pthread_mutex_lock(&mng_client->lock);
     if(mng_client->count != 0)
     {
-        printf("At least one client are registered, wake them up!\n");
+        log_info("At least one client is registered, they will be awakened.\n");
         const char placebo = '1';
         write(mng_client->notify[1], &placebo, 1);
 
         pthread_mutex_unlock(&mng_client->lock);
 
-        printf("Waiting for all thread to stop\n");
+        log_debug("Waiting for all thread to stop\n");
         //Waiting all child thread to clean shutdown before cleanup the struct
         for (int i = 0; i < mng_client->count; ++i)
             pthread_join(mng_client->clientThreadInfos[i].thread, NULL);
 
-        printf("All thread execute a clean shutdown\n");
+        log_debug("All thread execute a clean shutdown\n");
+        log_info("All clients have been awakened.");
     } else
         pthread_mutex_unlock(&mng_client->lock);
 
@@ -234,4 +236,44 @@ const char* get_register_error(REGISTER_CODE code)
         case MONITOR_IP_ALREADY_USED: return "A client have already register one of IPs asked.";
     }
     return "";
+}
+char *get_client_str_info(const client *cl)
+{
+    size_t size = 0;
+
+    size += snprintf(NULL, 0, "[%s]\n", cl->mac);
+
+    for (int i = 0; i < cl->countIp; ++i) {
+        size += snprintf(NULL, 0, "\tIP: %s, port: [", cl->ipPortInfo[i].ipStr);
+        for (int j = 0; j < cl->ipPortInfo[i].portCount; ++j)
+        {
+            if (j != cl->ipPortInfo[i].portCount - 1)
+                size += snprintf(NULL, 0, "%d, ", cl->ipPortInfo[i].ports[j]);
+            else
+                size += snprintf(NULL, 0, "%d]\n", cl->ipPortInfo[i].ports[j]);
+        }
+    }
+
+    char *buffer = (char*)malloc(size + 1);
+
+    if (!buffer) {
+        log_error("Out of memory\n");
+        return NULL;
+    }
+
+    int offset = snprintf(buffer, size + 1, "[%s]\n", cl->mac);
+
+    for (int i = 0; i < cl->countIp; ++i)
+    {
+        offset += snprintf(buffer + offset, size + 1 - offset, "\tIP: %s, port: [", cl->ipPortInfo[i].ipStr);
+        for (int j = 0; j < cl->ipPortInfo[i].portCount; ++j)
+        {
+            if (j != cl->ipPortInfo[i].portCount - 1)
+                offset += snprintf(buffer + offset, size + 1 - offset, "%d, ", cl->ipPortInfo[i].ports[j]);
+            else
+                offset += snprintf(buffer + offset, size + 1 - offset, "%d]\n", cl->ipPortInfo[i].ports[j]);
+        }
+    }
+
+    return buffer;
 }

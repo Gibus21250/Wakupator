@@ -147,7 +147,7 @@ static cJSON_bool compare_pointers(const unsigned char *name, const unsigned cha
     if (((*pointer != 0) && (*pointer != '/')) != (*name != 0))
     {
         /* one string has ended, the other not */
-        return false;;
+        return false;
     }
 
     return true;
