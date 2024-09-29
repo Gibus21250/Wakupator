@@ -25,8 +25,35 @@ void handle_signal() {
     }
 }
 
-int wakupator_main()
+int wakupator_main(int argc, char **argv)
 {
+
+    int port = 13717;
+    const char* ip = NULL;
+
+    //------- PARSE ARGS -------
+    if(argc < 3 || (argc-1)%2 == 1)
+        log_info("Wakupator arguments:\n\t-H <IPv4/v6> (required)\n\t-p <port> (default: 13717)\n");
+
+    for (int i = 0; i < argc-1; i +=2)
+    {
+        if(strcmp(argv[i+1], "-H") == 0)
+        {
+            ip = argv[i+2];
+        }
+        else if(strcmp(argv[i+1], "-p") == 0)
+        {
+            char *endPtr;
+            port = (int) strtol(argv[i+2], &endPtr, 10);
+
+            if (*endPtr != '\0' || port <= 0 || port > 65535) {
+                log_error("Error: invalid port '%s'.\n", argv[i+2]);
+                return EXIT_FAILURE;
+            }
+        }
+    }
+
+    //------- PARSING OK -------
     if (signal(SIGINT, handle_signal) == SIG_ERR) {
         log_fatal("Error while setup signal handler.\n");
         return EXIT_FAILURE;
@@ -36,11 +63,10 @@ int wakupator_main()
         return EXIT_FAILURE;
     }
 
-    int client_fd;
     struct sockaddr_storage serverAddress;
     const int addrLen = sizeof(struct sockaddr_storage);
 
-    server_fd = init_socket("2a02:8429:f0:c202:1::1234", 13717, SOCK_STREAM, IPPROTO_TCP, &serverAddress);
+    server_fd = init_socket(ip, port, SOCK_STREAM, IPPROTO_TCP, &serverAddress);
 
     if(server_fd == -1)
     {
@@ -90,6 +116,8 @@ int wakupator_main()
     manager.itName = name;
 
     log_info("Ready to register clients!\n");
+
+    int client_fd;
 
     int running = 1;
     while(running)
@@ -160,7 +188,7 @@ int wakupator_main()
 int main(int argc, char **argv)
 {
     init_log();
-    int code = wakupator_main();
+    int code = wakupator_main(argc, argv);
     close_log();
     return code;
 }
