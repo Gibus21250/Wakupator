@@ -131,7 +131,11 @@ void *main_client_monitoring(void* args)
 
     //remove all IP spoofed
     for (int j = 0; j < cl.countIp; ++j) {
-        snprintf(cmd, sizeof(cmd), "ip a del %s dev %s", cl.ipPortInfo[j].ipStr, manager->itName);
+        if(cl.ipPortInfo[j].ipFormat == AF_INET6)
+            snprintf(cmd, sizeof(cmd), "ip a del %s/128 dev %s", cl.ipPortInfo[j].ipStr, manager->itName);
+        else
+            snprintf(cmd, sizeof(cmd), "ip a del %s/32 dev %s", cl.ipPortInfo[j].ipStr, manager->itName);
+
         system(cmd);
     }
 
