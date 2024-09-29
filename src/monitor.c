@@ -108,16 +108,16 @@ void *main_client_monitoring(void* args)
         return NULL;
     }
 
-    snprintf(cmd, sizeof(cmd), "sudo sysctl -w net.ipv6.conf.%s.accept_dad=0 > /dev/null 2>&1", manager->itName);
+    snprintf(cmd, sizeof(cmd), "sysctl -w net.ipv6.conf.%s.accept_dad=0 > /dev/null 2>&1", manager->itName);
     system(cmd);
 
     //Assign IP off client on the host
     for (int j = 0; j < cl.countIp; ++j) {
-        snprintf(cmd, sizeof(cmd), "sudo ip a add %s dev %s", cl.ipPortInfo[j].ipStr, manager->itName);
+        snprintf(cmd, sizeof(cmd), "ip a add %s dev %s", cl.ipPortInfo[j].ipStr, manager->itName);
         system(cmd);
     }
 
-    snprintf(cmd, sizeof(cmd), "sudo sysctl -w net.ipv6.conf.%s.accept_dad=1 > /dev/null 2>&1", manager->itName);
+    snprintf(cmd, sizeof(cmd), "sysctl -w net.ipv6.conf.%s.accept_dad=1 > /dev/null 2>&1", manager->itName);
     system(cmd);
 
 
@@ -131,7 +131,7 @@ void *main_client_monitoring(void* args)
 
     //remove all IP spoofed
     for (int j = 0; j < cl.countIp; ++j) {
-        snprintf(cmd, sizeof(cmd), "sudo ip a del %s dev %s", cl.ipPortInfo[j].ipStr, manager->itName);
+        snprintf(cmd, sizeof(cmd), "ip a del %s dev %s", cl.ipPortInfo[j].ipStr, manager->itName);
         system(cmd);
     }
 
@@ -151,7 +151,7 @@ int verify_ips(const client *cl)
     for (int i = 0; i < cl->countIp; ++i) {
 
 
-    snprintf(cmd, sizeof(cmd), "sudo ip a | grep -w %s", cl->ipPortInfo->ipStr);
+    snprintf(cmd, sizeof(cmd), "ip a | grep -w %s", cl->ipPortInfo->ipStr);
 
     fp = popen(cmd, "r");
     if (fp == NULL) {
