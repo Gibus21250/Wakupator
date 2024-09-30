@@ -51,7 +51,7 @@ typedef struct manager {
     pthread_mutex_t lock;       //lock used when adding or removing client
     int mainRawSocket;          //Raw socket used by threads to send packets
     int ifIndex;                //Index of the interface
-    char *itName;               //Char name of the interface
+    const char *itName;               //Char name of the interface
     int notify[2];              //Pipe used to unlock all thread
 } manager;
 

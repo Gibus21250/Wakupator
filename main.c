@@ -30,10 +30,11 @@ int wakupator_main(int argc, char **argv)
 
     int port = 13717;
     const char* ip = NULL;
+    const char* ifName = "eth0";
 
     //------- PARSE ARGS -------
     if(argc < 3 || (argc-1)%2 == 1)
-        log_info("Wakupator arguments:\n\t-H <IPv4/v6> (required)\n\t-p <port> (default: 13717)\n");
+        log_info("Wakupator arguments:\n\t-H <IPv4/v6> (required)\n\t-p <port> (default: 13717)\n\t-e <interfaceName>\n");
 
     for (int i = 0; i < argc-1; i +=2)
     {
@@ -50,6 +51,9 @@ int wakupator_main(int argc, char **argv)
                 log_error("Error: invalid port '%s'.\n", argv[i+2]);
                 return EXIT_FAILURE;
             }
+        }else if(strcmp(argv[i+1], "-e") == 0)
+        {
+            ifName = argv[i+2];
         }
     }
 
@@ -93,7 +97,7 @@ int wakupator_main(int argc, char **argv)
 
     if(manager.mainRawSocket == -1)
     {
-        log_fatal("Error while creating main raw socket.\n");
+        log_fatal("Error while creating main raw socket. Have you the permission ?\n");
         close(server_fd);
         destroy_manager(&manager);
         return EXIT_FAILURE;
@@ -102,9 +106,7 @@ int wakupator_main(int argc, char **argv)
     struct ifreq ifr;
     memset(&ifr, 0, sizeof(ifr));
 
-    char *name = "eth0";
-
-    strncpy(ifr.ifr_name, name, IFNAMSIZ-1);
+    strncpy(ifr.ifr_name, ifName, IFNAMSIZ-1);
     if (ioctl(manager.mainRawSocket, SIOCGIFINDEX, &ifr) < 0) {
         log_fatal("Error while gather index of the interface.\n", strerror(errno));
         close(server_fd);
@@ -113,7 +115,7 @@ int wakupator_main(int argc, char **argv)
     }
 
     manager.ifIndex = ifr.ifr_ifindex;
-    manager.itName = name;
+    manager.itName = ifName;
 
     log_info("Ready to register clients!\n");
 
