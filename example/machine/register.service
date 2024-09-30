@@ -1,0 +1,12 @@
+[Unit]
+Description=Register the system to Wakupator
+DefaultDependencies=no
+Before=shutdown.target halt.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /etc/wakupator/register_to_wakupator.py # !! Verify path
+RemainAfterExit=true
+
+[Install]
+WantedBy=halt.target shutdown.target

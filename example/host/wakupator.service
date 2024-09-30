@@ -1,0 +1,18 @@
+[Unit]
+Description=Wakupator server
+After=network-online.target
+
+[Service]
+Type=simple
+
+StandardOutput=journal
+StandardError=journal
+
+User=root
+ExecStart=/bin/wakupator -H 2001:0db8:3c4d:4d58:1::1234 #Change to your IPv4/IPv6 and verify path
+
+Restart=on-failure
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target
