@@ -19,8 +19,8 @@ uint32_t filter_ether(struct sock_filter *buffer, uint32_t codeIndex, const unsi
 
 uint32_t filter_ipv4(struct sock_filter *buffer, uint32_t codeIndex, const uint32_t raw_ipv4, const int l3Start)
 {
-    buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_LD + BPF_W + BPF_ABS, l3Start + 12); //Load dst IPV4
-    buffer[codeIndex++] = (struct sock_filter) BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, raw_ipv4, 1, 0); // == raw_IPv4 ?
+    buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_LD + BPF_W + BPF_ABS, l3Start + 16); //Load dst IPV4
+    buffer[codeIndex++] = (struct sock_filter) BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, bswap_32(raw_ipv4), 1, 0); // == raw_IPv4 ?
     buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_RET+BPF_K, 0); //Skip current packet
 
     return codeIndex;
