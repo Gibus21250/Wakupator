@@ -148,26 +148,23 @@ void *main_client_monitoring(void* args)
 
 int verify_ips(const client *cl)
 {
-    char cmd[128];
-    char buffer[1024];
+    char buffer[128];
     FILE *fp;
 
     for (int i = 0; i < cl->countIp; ++i) {
 
+        snprintf(buffer, sizeof(buffer), "ip a | grep -w %s", cl->ipPortInfo[i].ipStr);
 
-    snprintf(cmd, sizeof(cmd), "ip a | grep -w %s", cl->ipPortInfo->ipStr);
+        fp = popen(buffer, "r");
+        if (fp == NULL) {
+            return MONITOR_CHECK_IP_ERROR;
+        }
 
-    fp = popen(cmd, "r");
-    if (fp == NULL) {
-        return MONITOR_CHECK_IP_ERROR;
-    }
-
-    if (fgets(buffer, sizeof(buffer), fp) != NULL) {
+        if (fgets(buffer, sizeof(buffer), fp) != NULL) {
+            pclose(fp);
+            return MONITOR_IP_ALREADY_USED;
+        }
         pclose(fp);
-        return MONITOR_IP_ALREADY_USED;
-    }
-
-    pclose(fp);
 
     }
     return OK;
