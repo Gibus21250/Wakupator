@@ -10,6 +10,8 @@
 
 uint32_t filter_ether(struct sock_filter *buffer, uint32_t codeIndex, unsigned short etherType);
 
+uint32_t filter_mac(struct sock_filter *buffer, uint32_t codeIndex, const uint8_t macRaw[6]);
+
 uint32_t filter_ipv4(struct sock_filter *buffer, uint32_t codeIndex, uint32_t raw_ipv4, int l3Start);
 
 uint32_t filter_ipv6(struct sock_filter *buffer, uint32_t codeIndex, const uint32_t raw_ipv6[4], int l3Start);

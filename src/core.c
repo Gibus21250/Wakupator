@@ -7,7 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define BUFFER_GROW_STEP 1
+#define BUFFER_GROW_STEP 4
 
 #include <sys/eventfd.h>
 #include <fcntl.h>
@@ -129,7 +129,7 @@ REGISTER_CODE register_client(manager *mng_client, client *newClient)
 
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 99999; //more than 1 second to launch the thread is like an error
+    timeout.tv_sec += 5; //more than 5 seconds to launch the thread is like an error
 
     //Wait a notification from the child thread, and this can time out
     //This call implicit atomically unlock the mutex, and lock it again after execution
@@ -188,6 +188,7 @@ void unregister_client(struct manager *mng, char* strMac)
                 mng->clientThreadInfos[j] = mng->clientThreadInfos[(j+1)];
 
             mng->count--;
+            log_info("Client [%s] has been retired from monitoring.\n", strMac);
             break;
         }
     }
@@ -219,24 +220,25 @@ const char* get_register_error(REGISTER_CODE code)
         case OK: return "OK.";
         case OUT_OF_MEMORY: return "Out of memory on the host.";
 
-        case PARSING_CJSON_ERROR: return "An error was find in the JSON. Please verify types, keynames and structure.";
+        case PARSING_CJSON_ERROR: return "An error has been found in the JSON. Please check the types, key names and structure.";
         case PARSING_INVALID_MAC_ADDRESS: return "Invalid MAC address format.";
-        case PARSING_DUPLICATED_IP_ADDRESS: return "Duplicated IP asked.";
         case PARSING_INVALID_IP_ADDRESS: return "Invalid IP address format.";
+        case PARSING_DUPLICATED_IP_ADDRESS: return "A duplicate IP has been found in the JSON, please merge all ports in an array for this IP.";
         case PARSING_INVALID_PORT: return "Invalid port value.";
 
-        case MANAGER_MAC_ADDRESS_ALREADY_MONITORED: return "A client with this MAC address is already monitored.";
-        case MANAGER_THREAD_CREATION_ERROR: return "Intern error while creating thread monitor.";
-        case MANAGER_THREAD_INIT_ERROR: return "Error while init information for the thread monitor.";
-        case MANAGER_THREAD_INIT_TIMEOUT: return "Thread's initializing state took too much time.";
+        case MANAGER_MAC_ADDRESS_ALREADY_MONITORED: return "A client with this MAC address is already being monitored.";
+        case MANAGER_THREAD_CREATION_ERROR: return "Internal error when creating the monitor thread.";
+        case MANAGER_THREAD_INIT_ERROR: return "Error during initialisation of information for the monitor thread.";
+        case MANAGER_THREAD_INIT_TIMEOUT: return "The initialization state of the monitor thread has taken too long.";
 
-        case MONITOR_DAD_ERROR: return "Impossible to temporally disable IPv6 Duplicate Address Detector.";
-        case MONITOR_CHECK_IP_ERROR: return "Error while executing command to check IP duplication.";
-        case MONITOR_RAW_SOCKET_CREATION_ERROR: return "Error while creating raw socket for the client.";
-        case MONITOR_IP_ALREADY_USED: return "A client have already register one of IPs asked.";
+        case MONITOR_DAD_ERROR: return "Unable to temporarily disable the IPv6 duplicate address detector.";
+        case MONITOR_CHECK_IP_ERROR: return "Error when executing the IP duplication verification command.";
+        case MONITOR_RAW_SOCKET_CREATION_ERROR: return "Error when creating a raw socket for the client.";
+        case MONITOR_IP_ALREADY_USED: return "A client has already registered one of the requested IP addresses.";
     }
     return "";
 }
+
 char *get_client_str_info(const client *cl)
 {
     size_t size = 0;

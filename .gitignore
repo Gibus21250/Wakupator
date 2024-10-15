@@ -1,5 +1,7 @@
 .idea/
 cmake-build*/
+scripts/*
+scratch/*
 
 # Prerequisites
 *.d

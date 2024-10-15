@@ -8,13 +8,23 @@
 
 uint32_t filter_ether(struct sock_filter *buffer, uint32_t codeIndex, const unsigned short etherType)
 {
-    //int vlanPadding = vlan == ETHERTYPE_VLAN ? 4:0;
-    //MAC src + MAC dst = 12 or 16 if VLAN
     buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_LD + BPF_H + BPF_ABS, 0xc); // Load EtherType
     buffer[codeIndex++] = (struct sock_filter) BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, etherType, 1, 0); // IPvx header ?
-    buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_RET+BPF_K, 0); //Skip current packet
+    buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_RET + BPF_K, 0); //Skip current packet
 
     return codeIndex;
+}
+
+uint32_t filter_mac(struct sock_filter *buffer, uint32_t codeIndex, const uint8_t macRaw[6])
+{
+    //First check if the src address isn't the supposed to be stopped
+    buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_LD + BPF_W + BPF_ABS, 0x8); // Load last 32 bits MAC src
+    buffer[codeIndex++] = (struct sock_filter) BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, bswap_32(*( (uint32_t *) (macRaw + (2 * sizeof(uint8_t))) )), 0, 2); // 32 last bits MAC
+    buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_LD + BPF_H + BPF_ABS, 0x6); // Load first 16 bits MAC
+    buffer[codeIndex++] = (struct sock_filter) BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, bswap_16(*((uint16_t *) macRaw)), 1, 0); // cmp 16 bits
+    buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_RET + BPF_K, 0); //Skip current packet
+
+    return  codeIndex;
 }
 
 uint32_t filter_ipv4(struct sock_filter *buffer, uint32_t codeIndex, const uint32_t raw_ipv4, const int l3Start)
