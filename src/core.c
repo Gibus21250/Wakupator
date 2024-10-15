@@ -7,7 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define BUFFER_GROW_STEP 1
+#define BUFFER_GROW_STEP 4
 
 #include <sys/eventfd.h>
 #include <fcntl.h>
@@ -129,7 +129,7 @@ REGISTER_CODE register_client(manager *mng_client, client *newClient)
 
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 99999; //more than 1 second to launch the thread is like an error
+    timeout.tv_sec += 5; //more than 5 seconds to launch the thread is like an error
 
     //Wait a notification from the child thread, and this can time out
     //This call implicit atomically unlock the mutex, and lock it again after execution
@@ -188,6 +188,7 @@ void unregister_client(struct manager *mng, char* strMac)
                 mng->clientThreadInfos[j] = mng->clientThreadInfos[(j+1)];
 
             mng->count--;
+            log_info("Client [%s] has been retired from monitoring.\n", strMac);
             break;
         }
     }
