@@ -213,7 +213,7 @@ void start_monitoring(struct manager *mng, const char* macClient)
     pthread_mutex_unlock(&mng->lock);
 }
 
-const char* get_register_error(REGISTER_CODE code)
+const char* get_register_message(REGISTER_CODE code)
 {
     switch (code)
     {

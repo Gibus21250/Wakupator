@@ -27,7 +27,6 @@ void handle_signal() {
 
 int wakupator_main(int argc, char **argv)
 {
-
     int port = 13717;
     const char* ip = NULL;
     const char* ifName = "eth0";
@@ -115,7 +114,7 @@ int wakupator_main(int argc, char **argv)
     }
 
     manager.ifIndex = ifr.ifr_ifindex;
-    manager.itName = ifName;
+    manager.ifName = ifName;
 
     log_info("Ready to register clients!\n");
 
@@ -148,7 +147,7 @@ int wakupator_main(int argc, char **argv)
         REGISTER_CODE code = parse_from_json(buffer, &cl);
 
         if(code != OK) {
-            message = get_register_error(code);
+            message = get_register_message(code);
             write(client_fd, message, strlen(message)+1);
             log_debug("Error in the JSON of the client: %s\n", message);
             close(client_fd);
@@ -159,7 +158,7 @@ int wakupator_main(int argc, char **argv)
 
         REGISTER_CODE res = register_client(&manager, &cl);
 
-        message = get_register_error(res);
+        message = get_register_message(res);
         write(client_fd, message, strlen(message)+1);
         close(client_fd); //close fd => close tcp
 

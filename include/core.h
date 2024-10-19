@@ -51,7 +51,7 @@ typedef struct manager {
     pthread_mutex_t lock;       //lock used when adding or removing client
     int mainRawSocket;          //Raw socket used by threads to send packets
     int ifIndex;                //Index of the interface
-    const char *itName;               //Char name of the interface
+    const char *ifName;         //Char* name of the interface
     int notify[2];              //Pipe used to unlock all thread
 } manager;
 
@@ -65,6 +65,6 @@ void start_monitoring(struct manager *mng_client, const char* macClient);
 
 char *get_client_str_info(const client *cl);
 
-const char* get_register_error(REGISTER_CODE code);
+const char* get_register_message(REGISTER_CODE code);
 
 #endif //WAKUPATOR_CORE_H
