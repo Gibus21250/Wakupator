@@ -28,6 +28,9 @@ int create_raw_socket_arp_ns(const char macStr[18]);
 
 struct sock_fprog create_bpf_filter(const ip_port_info *ipPortInfo);
 
+void spoof_ips(struct manager *mng, struct client *cl);
+void remove_ips(struct manager *mng, struct client *cl);
+
 int verify_ips(const client *cl);
 
 void wake_up(int rawSocket, int ifIndex, const char *macStr);

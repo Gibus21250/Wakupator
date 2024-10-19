@@ -165,6 +165,35 @@ void *main_client_monitoring(void* args)
     return NULL;
 }
 
+void spoof_ips(struct manager *mng, struct client *cl)
+{
+    char cmd[128];
+    snprintf(cmd, sizeof(cmd), "sysctl -w net.ipv6.conf.%s.accept_dad=0 > /dev/null 2>&1", mng->ifName);
+    system(cmd);
+
+    //Assign IP of the client on the host
+    for (int j = 0; j < cl->countIp; ++j) {
+        snprintf(cmd, sizeof(cmd), "ip a add %s dev %s", cl->ipPortInfo[j].ipStr, mng->ifName);
+        system(cmd);
+    }
+
+    snprintf(cmd, sizeof(cmd), "sysctl -w net.ipv6.conf.%s.accept_dad=1 > /dev/null 2>&1", mng->ifName);
+    system(cmd);
+}
+
+void remove_ips(struct manager *mng, struct client *cl)
+{
+    char cmd[128];
+    for (int i = 0; i < cl->countIp; ++i) {
+        if(cl->ipPortInfo[i].ipFormat == AF_INET6)
+            snprintf(cmd, sizeof(cmd), "ip a del %s/128 dev %s", cl->ipPortInfo[i].ipStr, mng->ifName);
+        else
+            snprintf(cmd, sizeof(cmd), "ip a del %s/32 dev %s", cl->ipPortInfo[i].ipStr, mng->ifName);
+
+        system(cmd);
+    }
+}
+
 int verify_ips(const client *cl)
 {
     char buffer[128];
