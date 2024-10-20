@@ -89,7 +89,7 @@ void *main_client_monitoring(void* args)
     fds[nbSockCreated].events = POLLIN;
     nbSockCreated++;
 
-    //Adding at the last the pipe for handling master notification (close socket from a pollfd seems to not unlock the thread)
+    //Adding at the last the pipe for handling master's notification (close socket from a pollfd seems to not unlock the thread)
     fds[nbSockCreated].fd = manager->notify[0];
     fds[nbSockCreated].events = POLLIN;
     nbSockCreated++;
@@ -106,57 +106,102 @@ void *main_client_monitoring(void* args)
     clock_gettime(CLOCK_REALTIME, &timeout);
     timeout.tv_sec += 10;
 
-    //Wait a notification from the child thread, and this can time out
+    //Wait a notification from the main thread
     if(pthread_cond_timedwait(mainClientArgs->selfCond, mainClientArgs->selfNotify, &timeout))
     {
         free(fds);
         return NULL;
     }
 
-    snprintf(cmd, sizeof(cmd), "sysctl -w net.ipv6.conf.%s.accept_dad=0 > /dev/null 2>&1", manager->itName);
-    system(cmd);
-
-    //Assign IP off client on the host
-    for (int j = 0; j < cl.countIp; ++j) {
-        snprintf(cmd, sizeof(cmd), "ip a add %s dev %s", cl.ipPortInfo[j].ipStr, manager->itName);
-        system(cmd);
-    }
-
-    snprintf(cmd, sizeof(cmd), "sysctl -w net.ipv6.conf.%s.accept_dad=1 > /dev/null 2>&1", manager->itName);
-    system(cmd);
-
-    sleep(1);
+    //Spoofs IPs
+    spoof_ips(manager, &cl);
 
     //----------- Clear the raw socket for ARP and NS detection -----------
     while ((recv(fds[nbSockCreated-2].fd, cmd, sizeof(cmd), MSG_DONTWAIT)) > 0);
     //------------ Waiting for traffic ------------
 
     log_info("Client [%s]: Monitoring started.\n", cl.mac);
-    poll(fds, nbSockCreated, -1); //Waiting traffic
+    char monitoring = 1;
 
-    //Wake up the machine
-    wake_up(manager->mainRawSocket, manager->ifIndex,cl.mac);
+    while (monitoring)
+    {
+        poll(fds, nbSockCreated, -1); //Waiting traffic
 
+        //----------- traffic has been caught ------------
 
-    if(fds[nbSockCreated-2].revents == POLLIN)
-        log_info("Client [%s]: the machine appears to have been started manually.\n", cl.mac);
-    else
-        log_info("Client [%s]: traffic detected, it was woken up.\n", cl.mac);
+        //remove all IP spoofed
+        remove_ips(manager, &cl);
 
-
-    //remove all IP spoofed
-    for (int i = 0; i < cl.countIp; ++i) {
-        if(cl.ipPortInfo[i].ipFormat == AF_INET6)
-            snprintf(cmd, sizeof(cmd), "ip a del %s/128 dev %s", cl.ipPortInfo[i].ipStr, manager->itName);
+        //If the "traffic" is the master's notification, send only one WoL, and stop the thread.
+        //We can't do a clean wake-up, because the system waits for the thread to stop quickly.
+        if(fds[nbSockCreated-1].revents == POLLIN)
+        {
+            wake_up(manager->mainRawSocket, manager->ifIndex,cl.mac);
+            monitoring = 0;
+        }
+        //If the traffic is an ARP/NS
+        else if(fds[nbSockCreated-2].revents == POLLIN)
+        {
+            log_info("Client [%s]: the machine has been started manually.\n", cl.mac);
+            monitoring = 0;
+        }
+        //Other "real" traffic monitored
         else
-            snprintf(cmd, sizeof(cmd), "ip a del %s/32 dev %s", cl.ipPortInfo[i].ipStr, manager->itName);
+        {
+            log_info("Client [%s]: traffic detected.\n", cl.mac);
+            int nbAttempt = 1;
+            int res;
 
-        system(cmd);
-        close(fds[i].fd);//Close the associated socket
+            struct timespec start_time, end_time;
+            clock_gettime(CLOCK_MONOTONIC, &start_time);
+
+            do //Attempt a Wake On LAN, and wait the machine to start
+            {
+                //If we receive anything from the machine (arp, ns etc.), that means that the machine is up!
+                if(fds[nbSockCreated-2].revents == POLLIN)
+                    break;
+                log_info("Client [%s]: Wake-On-Lan sent. (attempt %d)\n", cl.mac, nbAttempt);
+                //Attempt a WoL
+                wake_up(manager->mainRawSocket, manager->ifIndex,cl.mac);
+                nbAttempt++;
+
+                //Waiting only for arp/ns socket activity
+                res = poll(&fds[nbSockCreated-2], 1, (int) manager->timeBtwAttempt * 1000);
+
+                //== 0 means no activity detected (= timeout), and no error
+            }while(res == 0 && nbAttempt <= manager->nbAttempt);
+
+            clock_gettime(CLOCK_MONOTONIC, &end_time);
+            double time_spent = (double) (end_time.tv_sec - start_time.tv_sec) + (double) (end_time.tv_nsec - start_time.tv_nsec) / 1e9;
+
+            //The machine has been started successfully (res record one activity)
+            if(res != 0)
+            {
+                log_info("Client [%s]: the machine has been started successfully. (%.2fs)\n", cl.mac, time_spent);
+                monitoring = 0;
+            }
+            else
+            {
+                if(manager->keepClient == 1)
+                {
+                    spoof_ips(manager, &cl);
+                    log_info("Client [%s]: the machine does not appear to have started after %d attempts, monitoring resumes. (%.2fs)\n", cl.mac, manager->nbAttempt, time_spent);
+                }else
+                {
+                    log_info("Client [%s]: the machine does not appear to have started after %d attempts. (%.2fs)\n", cl.mac, manager->nbAttempt, time_spent);
+                    monitoring = 0;
+                }
+            }
+
+        }
+
+    }//Monitoring loop
+
+
+    //Close all sockets created
+    for (int i = 0; i < nbSockCreated - 1; ++i) {
+        close(fds[i].fd);
     }
-
-    //Close the raw socket for ARP/NS
-    close(fds[nbSockCreated-1].fd);
 
     unregister_client(manager, cl.mac);
 
@@ -298,7 +343,7 @@ int create_raw_filtered_socket(const ip_port_info *ipPortInfo)
     free(bpf.filter);
 
     //Sometimes, the time between socket creation and applying the filter, can catch some packets
-    char buffer[2048];
+    char buffer[128];
     ssize_t len;
 
     //Clear if necessary

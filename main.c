@@ -14,8 +14,22 @@
 #define BUFFER_SIZE 2048
 int server_fd = -1;
 
+const char* help_message =
+        "Usage: wakupator -H|--host <ip_address> [OPTIONS]\n\n"
+        "Options:\n"
+        "  -H,  --host <ip_address>           (Required) Set the host IP address. (IPv4 or IPv6)\n"
+        "  -p,  --port <port_number>          Set the port number (0-65535, DEFAULT: 13717)\n"
+        "  -if, --interface-name <name>       Specify the network interface name. (DEFAULT: eth0)\n"
+        "  -nb, --number-attempt <number>     Set the number of connection attempts. (DEFAULT: 3)\n"
+        "  -t,  --time-between-attempt <s>    Set the time in seconds between attempts. (DEFAULT: 30)\n"
+        "  -kc, --keep-client <0|1>           Keep the client monitored of he doesn't start after <-nb> attempt(s). (0: No, 1: Yes, DEFAULT: 1)\n"
+        "       --help                        Display this help message.\n\n"
+        "Examples:\n"
+        "  wakupator -H 192.168.0.37 -p 1234 -if eth2 -nb 5 -t 15 -kc 1\n"
+        "  wakupator --host 2001:0db8:3c4d:c202:1::2222 --port 4321 --interface-name enp4s0 --number-attempt 6 --time-between-attempt 10 --keep-client 0\n";
+
 void handle_signal() {
-    log_info("System Signal caught.\n");
+    log_info("System signal caught.\n");
     if (server_fd != -1) {
         close(server_fd);
         server_fd = -1;
@@ -27,30 +41,71 @@ int wakupator_main(int argc, char **argv)
     int port = 13717;
     const char* ip = NULL;
     const char* ifName = "eth0";
+    uint32_t nbAttempt = 3;
+    uint32_t timeBtwAttempt = 30;
+    char keepClient = 1;
 
     //------- PARSE ARGS -------
-    if(argc < 3 || (argc-1)%2 == 1)
-        log_info("Wakupator arguments:\n\t-H <IPv4/v6> (required)\n\t-p <port> (default: 13717)\n\t-e <interfaceName>\n");
 
-    for (int i = 0; i < argc-1; i +=2)
+    for (int i = 1; i < argc-1; i +=2)
     {
-        if(strcmp(argv[i+1], "-H") == 0)
+        if(strcmp(argv[i], "-H") == 0 || strcmp(argv[i], "--host") == 0)
         {
-            ip = argv[i+2];
+            ip = argv[i+1];
         }
-        else if(strcmp(argv[i+1], "-p") == 0)
+        else if(strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--port") == 0)
         {
             char *endPtr;
-            port = (int) strtol(argv[i+2], &endPtr, 10);
+            port = (int) strtol(argv[i+1], &endPtr, 10);
 
             if (*endPtr != '\0' || port <= 0 || port > 65535) {
-                log_error("Error: invalid port '%s'.\n", argv[i+2]);
+                log_error("Error: invalid port '%s'.\n", argv[i+1]);
                 return EXIT_FAILURE;
             }
-        }else if(strcmp(argv[i+1], "-e") == 0)
-        {
-            ifName = argv[i+2];
         }
+        else if(strcmp(argv[i], "-if") == 0 || strcmp(argv[i], "--interface-name") == 0)
+        {
+            ifName = argv[i+1];
+        }
+        else if(strcmp(argv[i], "-nb") == 0 || strcmp(argv[i], "--number-attempt") == 0)
+        {
+            char *endPtr;
+            nbAttempt = (uint32_t) strtol(argv[i+1], &endPtr, 10);
+
+            if (*endPtr != '\0') {
+                log_error("Error: invalid number attempt value '%s'.\n", argv[i+1]);
+                return EXIT_FAILURE;
+            }
+        }
+        else if(strcmp(argv[i], "-t") == 0 || strcmp(argv[i], "--time-between-attempt") == 0)
+        {
+            char *endPtr;
+            timeBtwAttempt = (uint32_t) strtol(argv[i+1], &endPtr, 10);
+
+            if (*endPtr != '\0') {
+                log_error("Error: invalid time between attempt value '%s'.\n", argv[i+1]);
+                return EXIT_FAILURE;
+            }
+        }
+        else if(strcmp(argv[i], "-kc") == 0 || strcmp(argv[i], "--keep-client") == 0)
+        {
+            keepClient = argv[i+1][0] == '0'?0:1;
+        }
+        else if(strcmp(argv[i], "--help") == 0)
+        {
+            log_info(help_message);
+            return 0;
+        }else
+        {
+            log_info("Option not recognised: %s", argv[i]);
+            return 0;
+        }
+    }
+
+    if(ip == NULL)
+    {
+        log_info("You need to bind Wakupator to an IP with the option -H <IPv4/v6> or --host <IPv4/v6>\n");
+        return 0;
     }
 
     //------- PARSING OK -------
