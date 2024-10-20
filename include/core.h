@@ -16,6 +16,11 @@ typedef enum REGISTER_CODE {
     OK = 0,
     OUT_OF_MEMORY,
 
+    INIT_MUTEX_CREATION_ERROR,
+    INIT_PIPE_CREATION_ERROR,
+    INIT_RAW_SOCKET_CREATION_ERROR,
+    INIT_INTERFACE_GATHER_ERROR,
+
     //Parsing error code
     PARSING_CJSON_ERROR,
     PARSING_INVALID_MAC_ADDRESS,
@@ -45,17 +50,23 @@ typedef struct thread_monitor_info {
 } thread_monitor_info;
 
 typedef struct manager {
-    uint32_t bufferSize;        //size of the buffer
-    uint32_t count;             //number of client monitored identified by mac address
+    //All clients infos
+    uint32_t bufferSize;        //Size of the buffer
+    uint32_t count;             //Number of client monitored identified by mac address
     thread_monitor_info *clientThreadInfos;
-    pthread_mutex_t lock;       //lock used when adding or removing client
+    pthread_mutex_t lock;       //Lock used when manipulating the struct
+    int notify[2];              //Pipe used to unlock all client's thread
+
+    //Manager options
     int mainRawSocket;          //Raw socket used by threads to send packets
     int ifIndex;                //Index of the interface
     const char *ifName;         //Char* name of the interface
-    int notify[2];              //Pipe used to unlock all thread
+    uint32_t nbAttempt;         //Number of WoL attempt to wake up the machine
+    uint32_t timeBtwAttempt;    //Time in seconds between each WoL attempt
+    char keepClient;            //What to do when the machine didn't seems to start after nbAttempt;
 } manager;
 
-void init_manager(struct manager *mng_client);
+REGISTER_CODE init_manager(struct manager *mng_client, const char* ifName);
 void destroy_manager(struct manager *mng_client);
 
 REGISTER_CODE register_client(struct manager *mng_client, client *newClient);

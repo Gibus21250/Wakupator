@@ -4,8 +4,6 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <signal.h>
-#include <sys/ioctl.h>
-#include <net/if.h>
 #include <errno.h>
 
 #include "utils.h"
@@ -14,7 +12,6 @@
 #include "logger.h"
 
 #define BUFFER_SIZE 2048
-
 int server_fd = -1;
 
 void handle_signal() {
@@ -90,37 +87,25 @@ int wakupator_main(int argc, char **argv)
     }
 
     manager manager;
-    init_manager(&manager);
+    REGISTER_CODE code = init_manager(&manager, ifName);
 
-    manager.mainRawSocket = socket(PF_PACKET, SOCK_RAW, 0);
-
-    if(manager.mainRawSocket == -1)
+    if(code != OK)
     {
-        log_fatal("Error while creating main raw socket. Have you the permission ?\n");
+        log_fatal(get_register_message(code), strerror(errno));
         close(server_fd);
-        destroy_manager(&manager);
         return EXIT_FAILURE;
     }
 
-    struct ifreq ifr;
-    memset(&ifr, 0, sizeof(ifr));
-
-    strncpy(ifr.ifr_name, ifName, IFNAMSIZ-1);
-    if (ioctl(manager.mainRawSocket, SIOCGIFINDEX, &ifr) < 0) {
-        log_fatal("Error while gather index of the interface.\n", strerror(errno));
-        close(server_fd);
-        destroy_manager(&manager);
-        return EXIT_FAILURE;
-    }
-
-    manager.ifIndex = ifr.ifr_ifindex;
-    manager.ifName = ifName;
+    //Set parsed arguments to the manager
+    manager.keepClient = keepClient;
+    manager.nbAttempt = nbAttempt;
+    manager.timeBtwAttempt = timeBtwAttempt;
 
     log_info("Ready to register clients!\n");
 
     int client_fd;
-
     int running = 1;
+
     while(running)
     {
         char buffer[BUFFER_SIZE] = {0};
@@ -144,7 +129,7 @@ int wakupator_main(int argc, char **argv)
         client cl;
         const char *message;
 
-        REGISTER_CODE code = parse_from_json(buffer, &cl);
+        code = parse_from_json(buffer, &cl);
 
         if(code != OK) {
             message = get_register_message(code);
@@ -156,13 +141,13 @@ int wakupator_main(int argc, char **argv)
 
         log_debug("Parsing OK\n");
 
-        REGISTER_CODE res = register_client(&manager, &cl);
+        code = register_client(&manager, &cl);
 
-        message = get_register_message(res);
+        message = get_register_message(code);
         write(client_fd, message, strlen(message)+1);
         close(client_fd); //close fd => close tcp
 
-        if(res != OK) {
+        if(code != OK) {
             log_debug("Failed to register the client: %s\n", message);
             destroy_client(&cl);
             continue;

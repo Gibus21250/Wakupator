@@ -12,18 +12,66 @@
 #include <sys/eventfd.h>
 #include <fcntl.h>
 #include <stdlib.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
 
 #include "core.h"
 #include "monitor.h"
 #include "logger.h"
 
-void init_manager(struct manager *mng_client)
+REGISTER_CODE init_manager(struct manager *mng_client, const char* ifName)
 {
-    mng_client->clientThreadInfos = (thread_monitor_info*) malloc(BUFFER_GROW_STEP * sizeof(thread_monitor_info));
+
+    //Create main raw socket (for sending WoL packets)
+    mng_client->mainRawSocket = socket(PF_PACKET, SOCK_RAW, 0);
+
+    if(mng_client->mainRawSocket == -1)
+    {
+        return INIT_RAW_SOCKET_CREATION_ERROR;
+    }
+
+    struct ifreq ifr;
+    memset(&ifr, 0, sizeof(ifr));
+
+    strncpy(ifr.ifr_name, ifName, IFNAMSIZ-1);
+    if (ioctl(mng_client->mainRawSocket, SIOCGIFINDEX, &ifr) < 0)
+    {
+        close(mng_client->mainRawSocket);
+        return INIT_INTERFACE_GATHER_ERROR;
+    }
+
+    mng_client->ifIndex = ifr.ifr_ifindex;
+    mng_client->ifName = ifName;
+
+    //Buffer data
     mng_client->count = 0;
     mng_client->bufferSize = BUFFER_GROW_STEP;
-    pthread_mutex_init(&mng_client->lock, NULL);
-    pipe(mng_client->notify);
+
+    mng_client->clientThreadInfos = (thread_monitor_info*) malloc(BUFFER_GROW_STEP * sizeof(thread_monitor_info));
+    if(mng_client->clientThreadInfos == NULL)
+    {
+        close(mng_client->mainRawSocket);
+        return OUT_OF_MEMORY;
+    }
+
+    //Create struct mutex
+    if(pthread_mutex_init(&mng_client->lock, NULL) != 0)
+    {
+        free(mng_client->clientThreadInfos);
+        close(mng_client->mainRawSocket);
+        return INIT_MUTEX_CREATION_ERROR;
+    }
+
+    //Create pipe for notification
+    if(pipe(mng_client->notify) != 0)
+    {
+        free(mng_client->clientThreadInfos);
+        close(mng_client->mainRawSocket);
+        pthread_mutex_destroy(&mng_client->lock);
+        return INIT_PIPE_CREATION_ERROR;
+    }
+
+    return OK;
 }
 
 void destroy_manager(struct manager *mng_client)
@@ -32,7 +80,7 @@ void destroy_manager(struct manager *mng_client)
     pthread_mutex_lock(&mng_client->lock);
     if(mng_client->count != 0)
     {
-        log_info("At least one client is registered, they will be awakened.\n");
+        log_info("At least one client is still registered and will be woken up.\n");
         const char placebo = '1';
         write(mng_client->notify[1], &placebo, 1);
 
@@ -44,15 +92,16 @@ void destroy_manager(struct manager *mng_client)
             pthread_join(mng_client->clientThreadInfos[i].thread, NULL);
 
         log_debug("All thread execute a clean shutdown\n");
-        log_info("All clients have been awakened.");
+        log_info("All the client have been woken up.");
     } else
         pthread_mutex_unlock(&mng_client->lock);
 
-    pthread_mutex_destroy(&mng_client->lock);
     free(mng_client->clientThreadInfos);
-    mng_client->count = 0;
+    pthread_mutex_destroy(&mng_client->lock);
+
     close(mng_client->notify[0]);
     close(mng_client->notify[1]);
+    close(mng_client->mainRawSocket);
 
 }
 
@@ -219,6 +268,11 @@ const char* get_register_message(REGISTER_CODE code)
     {
         case OK: return "OK.";
         case OUT_OF_MEMORY: return "Out of memory on the host.";
+
+        case INIT_MUTEX_CREATION_ERROR: return "Error while creating a mutex.";
+        case INIT_PIPE_CREATION_ERROR: return "Error while creating main pipe.";
+        case INIT_RAW_SOCKET_CREATION_ERROR: return "Error while creating a raw socket, did you have the permissions ?.";
+        case INIT_INTERFACE_GATHER_ERROR: return "Error while gathering interface information, please verify the interface name.";
 
         case PARSING_CJSON_ERROR: return "An error has been found in the JSON. Please check the types, key names and structure.";
         case PARSING_INVALID_MAC_ADDRESS: return "Invalid MAC address format.";
