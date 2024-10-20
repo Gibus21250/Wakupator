@@ -12,7 +12,7 @@
 
 #include "client.h"
 
-typedef enum REGISTER_CODE {
+typedef enum WAKUPATOR_CODE {
     OK = 0,
     OUT_OF_MEMORY,
 
@@ -40,7 +40,7 @@ typedef enum REGISTER_CODE {
     MONITOR_RAW_SOCKET_CREATION_ERROR,
     MONITOR_IP_ALREADY_USED
 
-} REGISTER_CODE;
+} WAKUPATOR_CODE;
 
 typedef struct thread_monitor_info {
     char mac[18];
@@ -51,31 +51,31 @@ typedef struct thread_monitor_info {
 
 typedef struct manager {
     //All clients infos
-    uint32_t bufferSize;        //Size of the buffer
-    uint32_t count;             //Number of client monitored identified by mac address
-    thread_monitor_info *clientThreadInfos;
-    pthread_mutex_t lock;       //Lock used when manipulating the struct
-    int notify[2];              //Pipe used to unlock all client's thread
+    uint32_t bufferSize;                        //Size of the buffer
+    uint32_t count;                             //Number of client monitored identified by mac address
+    thread_monitor_info *clientThreadInfos;     //Array of all client thread info
+    pthread_mutex_t lock;                       //Lock used when manipulating the struct
+    int notify[2];                              //Pipe used to unlock all client's thread
 
     //Manager options
-    int mainRawSocket;          //Raw socket used by threads to send packets
-    int ifIndex;                //Index of the interface
-    const char *ifName;         //Char* name of the interface
-    uint32_t nbAttempt;         //Number of WoL attempt to wake up the machine
-    uint32_t timeBtwAttempt;    //Time in seconds between each WoL attempt
-    char keepClient;            //What to do when the machine didn't seems to start after nbAttempt;
+    int mainRawSocket;                          //Raw socket used by threads to send packets
+    int ifIndex;                                //Index of the interface
+    const char *ifName;                         //Char* name of the interface
+    uint32_t nbAttempt;                         //Number of WoL attempt to wake up the machine
+    uint32_t timeBtwAttempt;                    //Time in seconds between each WoL attempt
+    char keepClient;                            //What to do when the machine didn't seems to start after nbAttempt;
 } manager;
 
-REGISTER_CODE init_manager(struct manager *mng_client, const char* ifName);
+WAKUPATOR_CODE init_manager(struct manager *mng_client, const char* ifName);
 void destroy_manager(struct manager *mng_client);
 
-REGISTER_CODE register_client(struct manager *mng_client, client *newClient);
+WAKUPATOR_CODE register_client(struct manager *mng_client, client *newClient);
 void unregister_client(struct manager *mng_client, char* strMac);
 
 void start_monitoring(struct manager *mng_client, const char* macClient);
 
 char *get_client_str_info(const client *cl);
 
-const char* get_register_message(REGISTER_CODE code);
+const char* get_wakupator_message_code(WAKUPATOR_CODE code);
 
 #endif //WAKUPATOR_CORE_H

@@ -142,11 +142,11 @@ int wakupator_main(int argc, char **argv)
     }
 
     manager manager;
-    REGISTER_CODE code = init_manager(&manager, ifName);
+    WAKUPATOR_CODE code = init_manager(&manager, ifName);
 
     if(code != OK)
     {
-        log_fatal(get_register_message(code), strerror(errno));
+        log_fatal(get_wakupator_message_code(code), strerror(errno));
         close(server_fd);
         return EXIT_FAILURE;
     }
@@ -187,7 +187,7 @@ int wakupator_main(int argc, char **argv)
         code = parse_from_json(buffer, &cl);
 
         if(code != OK) {
-            message = get_register_message(code);
+            message = get_wakupator_message_code(code);
             write(client_fd, message, strlen(message)+1);
             log_debug("Error in the JSON of the client: %s\n", message);
             close(client_fd);
@@ -198,7 +198,7 @@ int wakupator_main(int argc, char **argv)
 
         code = register_client(&manager, &cl);
 
-        message = get_register_message(code);
+        message = get_wakupator_message_code(code);
         write(client_fd, message, strlen(message)+1);
         close(client_fd); //close fd => close tcp
 

@@ -10,7 +10,7 @@
 
 #include "parser.h"
 
-REGISTER_CODE parse_from_json(const char *json_raw, client* client)
+WAKUPATOR_CODE parse_from_json(const char *json_raw, client* client)
 {
     cJSON *json = cJSON_Parse(json_raw);
     if (json == NULL)

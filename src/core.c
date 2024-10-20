@@ -19,7 +19,7 @@
 #include "monitor.h"
 #include "logger.h"
 
-REGISTER_CODE init_manager(struct manager *mng_client, const char* ifName)
+WAKUPATOR_CODE init_manager(struct manager *mng_client, const char* ifName)
 {
 
     //Create main raw socket (for sending WoL packets)
@@ -105,7 +105,7 @@ void destroy_manager(struct manager *mng_client)
 
 }
 
-REGISTER_CODE register_client(manager *mng_client, client *newClient)
+WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
 {
     //Lock the struct
     pthread_mutex_lock(&mng_client->lock);
@@ -262,7 +262,7 @@ void start_monitoring(struct manager *mng, const char* macClient)
     pthread_mutex_unlock(&mng->lock);
 }
 
-const char* get_register_message(REGISTER_CODE code)
+const char* get_wakupator_message_code(WAKUPATOR_CODE code)
 {
     switch (code)
     {
