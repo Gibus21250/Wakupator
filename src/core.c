@@ -55,10 +55,27 @@ WAKUPATOR_CODE init_manager(struct manager *mng_client, const char* ifName)
     }
 
     //Create struct mutex
-    if(pthread_mutex_init(&mng_client->lock, NULL) != 0)
+    if(pthread_mutex_init(&mng_client->mainLock, NULL) != 0)
     {
         free(mng_client->clientThreadInfos);
         close(mng_client->mainRawSocket);
+        return INIT_MUTEX_CREATION_ERROR;
+    }
+
+    if(pthread_mutex_init(&mng_client->registeringMutex, NULL) != 0)
+    {
+        free(mng_client->clientThreadInfos);
+        close(mng_client->mainRawSocket);
+        pthread_mutex_destroy(&mng_client->mainLock);
+        return INIT_MUTEX_CREATION_ERROR;
+    }
+
+    if(pthread_cond_init(&mng_client->registeringCond, NULL) != 0)
+    {
+        free(mng_client->clientThreadInfos);
+        close(mng_client->mainRawSocket);
+        pthread_mutex_destroy(&mng_client->mainLock);
+        pthread_mutex_destroy(&mng_client->registeringMutex);
         return INIT_MUTEX_CREATION_ERROR;
     }
 
@@ -67,7 +84,9 @@ WAKUPATOR_CODE init_manager(struct manager *mng_client, const char* ifName)
     {
         free(mng_client->clientThreadInfos);
         close(mng_client->mainRawSocket);
-        pthread_mutex_destroy(&mng_client->lock);
+        pthread_mutex_destroy(&mng_client->mainLock);
+        pthread_mutex_destroy(&mng_client->registeringMutex);
+        pthread_cond_destroy(&mng_client->registeringCond);
         return INIT_PIPE_CREATION_ERROR;
     }
 
@@ -77,14 +96,15 @@ WAKUPATOR_CODE init_manager(struct manager *mng_client, const char* ifName)
 void destroy_manager(struct manager *mng_client)
 {
 
-    pthread_mutex_lock(&mng_client->lock);
+    pthread_mutex_lock(&mng_client->mainLock);
     if(mng_client->count != 0)
     {
         log_info("At least one client is still registered and will be woken up.\n");
         const char placebo = '1';
         write(mng_client->notify[1], &placebo, 1);
 
-        pthread_mutex_unlock(&mng_client->lock);
+        pthread_mutex_unlock(&mng_client->mainLock);
+        //monitor thread need the mutex to remove client
 
         log_debug("Waiting for all thread to stop\n");
         //Waiting all child thread to clean shutdown before cleanup the struct
@@ -94,10 +114,13 @@ void destroy_manager(struct manager *mng_client)
         log_debug("All thread execute a clean shutdown\n");
         log_info("All the client have been woken up.");
     } else
-        pthread_mutex_unlock(&mng_client->lock);
+        pthread_mutex_unlock(&mng_client->mainLock);
 
     free(mng_client->clientThreadInfos);
-    pthread_mutex_destroy(&mng_client->lock);
+    pthread_mutex_destroy(&mng_client->mainLock);
+    pthread_mutex_destroy(&mng_client->registeringMutex);
+
+    pthread_cond_destroy(&mng_client->registeringCond);
 
     close(mng_client->notify[0]);
     close(mng_client->notify[1]);
@@ -107,14 +130,14 @@ void destroy_manager(struct manager *mng_client)
 
 WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
 {
-    //Lock the struct
-    pthread_mutex_lock(&mng_client->lock);
+    //Lock the manager struct
+    pthread_mutex_lock(&mng_client->mainLock);
 
     //Verify that the client's mac address isn't already monitored
     for (int i = 0; i < mng_client->count; ++i) {
-        if(strcasecmp(newClient->mac, mng_client->clientThreadInfos[i].mac) == 0)
+        if(strcasecmp(newClient->mac, mng_client->clientThreadInfos[i].cl.mac) == 0)
         {
-            pthread_mutex_unlock(&mng_client->lock);
+            pthread_mutex_unlock(&mng_client->mainLock);
             return MANAGER_MAC_ADDRESS_ALREADY_MONITORED;
         }
     }
@@ -128,51 +151,34 @@ WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
             mng_client->clientThreadInfos = tmp;
             mng_client->bufferSize += BUFFER_GROW_STEP;
         } else {
-            pthread_mutex_unlock(&mng_client->lock);
+            pthread_mutex_unlock(&mng_client->mainLock);
             return OUT_OF_MEMORY;
         }
     }
 
     uint32_t index = mng_client->count;
 
-    //Init thread's notify stuff
-    pthread_mutex_init(&mng_client->clientThreadInfos[index].mutex, NULL);
-    pthread_cond_init(&mng_client->clientThreadInfos[index].cond, NULL);
+    pthread_mutex_t *childMutex = &mng_client->registeringMutex;
+    pthread_cond_t *childCond = &mng_client->registeringCond;
 
-    //Setup notify stuff for this thread
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
+    WAKUPATOR_CODE code = 0;
 
-    //Create sync stuff for the child thread
-    pthread_mutex_init(&mutex, NULL);
-    pthread_cond_init(&cond, NULL);
-
-    main_client_args args = {
+    main_monitor_args args = {
             mng_client,
             newClient,
-            &mutex,
-            &cond,
-            0,
-            &mng_client->clientThreadInfos[index].mutex,
-            &mng_client->clientThreadInfos[index].cond
+            &code
     };
 
-    //Lock this thread's mutex
-    pthread_mutex_lock(&mutex);
-    pthread_t child;
+    //Lock the child mutex first
+    pthread_mutex_lock(childMutex);
+    pthread_t childThread;
 
-    //Now we can start the thread who going to monitor the client
-    if(pthread_create(&child, NULL, main_client_monitoring, (void*) &args))
+    //Now we can start the child thread that going to monitor the client
+    if(pthread_create(&childThread, NULL, main_client_monitoring, (void*) &args))
     {
-        pthread_mutex_unlock(&mutex);
-
-        pthread_mutex_destroy(&mutex);
-        pthread_cond_destroy(&cond);
-
-        pthread_mutex_destroy(&mng_client->clientThreadInfos[index].mutex);
-        pthread_cond_destroy(&mng_client->clientThreadInfos[index].cond);
-
-        pthread_mutex_unlock(&mng_client->lock);
+        //If error while creating the thread
+        pthread_mutex_unlock(childMutex);
+        pthread_mutex_unlock(&mng_client->mainLock);
         return MANAGER_THREAD_CREATION_ERROR;
     }
 
@@ -181,57 +187,49 @@ WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
     timeout.tv_sec += 5; //more than 5 seconds to launch the thread is like an error
 
     //Wait a notification from the child thread, and this can time out
-    //This call implicit atomically unlock the mutex, and lock it again after execution
-    if(pthread_cond_timedwait(&cond, &mutex, &timeout))
+    //This call implicit atomically unlock the mutex, and mainLock it again after cond notified
+    if(pthread_cond_timedwait(childCond, childMutex, &timeout))
     {
-        pthread_mutex_unlock(&mutex);
-        pthread_mutex_destroy(&mutex);
-        pthread_cond_destroy(&cond);
-        pthread_mutex_destroy(&mng_client->clientThreadInfos[index].mutex);
-        pthread_cond_destroy(&mng_client->clientThreadInfos[index].cond);
-        pthread_cancel(child); //Tell the child to cleanly abort
-        pthread_mutex_unlock(&mng_client->lock);
+        pthread_mutex_unlock(childMutex);
+        pthread_cancel(childThread); //Tell the child thread to cleanly abort
+        pthread_mutex_unlock(&mng_client->mainLock);
         return MANAGER_THREAD_INIT_TIMEOUT;
     }
 
-    //Check if no execution error during execution of the child thread
-    if(args.error != OK)
+    log_debug("code after timedwait %d\n", code);
+
+    //Check if no execution error during init phase of the child thread
+    if(code != OK)
     {
-        pthread_mutex_unlock(&mutex);
-        pthread_join(child, NULL);
-        pthread_mutex_destroy(&mutex);
-        pthread_cond_destroy(&cond);
-        pthread_mutex_destroy(&mng_client->clientThreadInfos[index].mutex);
-        pthread_cond_destroy(&mng_client->clientThreadInfos[index].cond);
-        pthread_mutex_unlock(&mng_client->lock);
-        return args.error;
+        pthread_mutex_unlock(childMutex);
+        pthread_join(childThread, NULL);
+        pthread_mutex_unlock(&mng_client->mainLock);
+        return code;
     }
 
     //Finally, everything is ok
-    memcpy(&mng_client->clientThreadInfos[index].mac, &newClient->mac, 18);
-    mng_client->clientThreadInfos[index].thread = child;
+    //Shallow copy of the client, the child thread is responsible to the struct
+    mng_client->clientThreadInfos[index].cl = *newClient;
+    mng_client->clientThreadInfos[index].thread = childThread;
     mng_client->count++;
 
-    pthread_mutex_unlock(&mutex);
-    pthread_mutex_destroy(&mutex);
-    pthread_cond_destroy(&cond);
-
-    pthread_mutex_unlock(&mng_client->lock);
+    pthread_mutex_unlock(childMutex);
+    pthread_mutex_unlock(&mng_client->mainLock);
 
     return OK;
 }
 
-void unregister_client(struct manager *mng, char* strMac)
+void unregister_client(struct manager *mng, const char* strMac)
 {
-    pthread_mutex_lock(&mng->lock);
+    pthread_mutex_lock(&mng->mainLock);
 
     for (int i = 0; i < mng->count; ++i) {
         //if we found the client
-        if(strcasecmp(strMac, mng->clientThreadInfos[i].mac) == 0)
+        if(strcasecmp(strMac, mng->clientThreadInfos[i].cl.mac) == 0)
         {
-            //Clean monitor's notify stuff
-            pthread_mutex_destroy(&mng->clientThreadInfos[i].mutex);
-            pthread_cond_destroy(&mng->clientThreadInfos[i].cond);
+
+            destroy_client(&mng->clientThreadInfos[i].cl);
+
             //shift all thread_client_info to the left starting this index
             for (int j = i; j < mng->count-1; ++j)
                 mng->clientThreadInfos[j] = mng->clientThreadInfos[(j+1)];
@@ -241,25 +239,25 @@ void unregister_client(struct manager *mng, char* strMac)
             break;
         }
     }
-    pthread_mutex_unlock(&mng->lock);
+    pthread_mutex_unlock(&mng->mainLock);
 }
 
 void start_monitoring(struct manager *mng, const char* macClient)
 {
-    pthread_mutex_lock(&mng->lock);
+    pthread_mutex_lock(&mng->mainLock);
 
     for (int i = 0; i < mng->count; ++i) {
 
-        if(strcasecmp(macClient, mng->clientThreadInfos[i].mac) == 0)
+        if(strcasecmp(macClient, mng->clientThreadInfos[i].cl.mac) == 0)
         {
             //Notify the thread to start!
-            pthread_mutex_lock(&mng->clientThreadInfos[i].mutex);
-            pthread_cond_signal(&mng->clientThreadInfos[i].cond);
-            pthread_mutex_unlock(&mng->clientThreadInfos[i].mutex);
+            pthread_mutex_lock(&mng->registeringMutex);
+            pthread_cond_signal(&mng->registeringCond);
+            pthread_mutex_unlock(&mng->registeringMutex);
             break;
         }
     }
-    pthread_mutex_unlock(&mng->lock);
+    pthread_mutex_unlock(&mng->mainLock);
 }
 
 const char* get_wakupator_message_code(WAKUPATOR_CODE code)

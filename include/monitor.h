@@ -10,15 +10,11 @@
 
 #include "core.h"
 
-typedef struct main_client_args {
-    manager *managerMain;
-    client *client;
-    pthread_mutex_t *notify;
-    pthread_cond_t *cond;
-    char error;
-    pthread_mutex_t *selfNotify;
-    pthread_cond_t *selfCond;
-} main_client_args;
+typedef struct main_monitor_args {
+    manager *managerMain;               //Pointer to the manager struct
+    client *client;                     //Pointer to the client
+    WAKUPATOR_CODE *wakupator_code;     //Pointer to return code (! invalid just before the main while)
+} main_monitor_args;
 
 void *main_client_monitoring(void* args);
 

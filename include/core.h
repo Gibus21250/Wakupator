@@ -16,12 +16,13 @@ typedef enum WAKUPATOR_CODE {
     OK = 0,
     OUT_OF_MEMORY,
 
+    //System error (Initialisation of Wakupator)
     INIT_MUTEX_CREATION_ERROR,
     INIT_PIPE_CREATION_ERROR,
     INIT_RAW_SOCKET_CREATION_ERROR,
     INIT_INTERFACE_GATHER_ERROR,
 
-    //Parsing error code
+    //Parsing error
     PARSING_CJSON_ERROR,
     PARSING_INVALID_MAC_ADDRESS,
     PARSING_INVALID_IP_ADDRESS,
@@ -43,10 +44,8 @@ typedef enum WAKUPATOR_CODE {
 } WAKUPATOR_CODE;
 
 typedef struct thread_monitor_info {
-    char mac[18];
+    client cl;
     pthread_t thread;
-    pthread_mutex_t mutex;
-    pthread_cond_t cond;
 } thread_monitor_info;
 
 typedef struct manager {
@@ -54,7 +53,9 @@ typedef struct manager {
     uint32_t bufferSize;                        //Size of the buffer
     uint32_t count;                             //Number of client monitored identified by mac address
     thread_monitor_info *clientThreadInfos;     //Array of all client thread info
-    pthread_mutex_t lock;                       //Lock used when manipulating the struct
+    pthread_mutex_t mainLock;                   //Lock used when manipulating the struct (add/remove client)
+    pthread_mutex_t registeringMutex;           //Mutex used by master and child thread when init the monitoring thread
+    pthread_cond_t registeringCond;             //Cond used by master and child thread when init the monitoring thread
     int notify[2];                              //Pipe used to unlock all client's thread
 
     //Manager options
@@ -63,15 +64,15 @@ typedef struct manager {
     const char *ifName;                         //Char* name of the interface
     uint32_t nbAttempt;                         //Number of WoL attempt to wake up the machine
     uint32_t timeBtwAttempt;                    //Time in seconds between each WoL attempt
-    char keepClient;                            //What to do when the machine didn't seems to start after nbAttempt;
+    uint32_t keepClient;                        //What to do when the machine didn't seems to start after nbAttempt;
 } manager;
 
 WAKUPATOR_CODE init_manager(struct manager *mng_client, const char* ifName);
 void destroy_manager(struct manager *mng_client);
 
 WAKUPATOR_CODE register_client(struct manager *mng_client, client *newClient);
-void unregister_client(struct manager *mng_client, char* strMac);
 
+void unregister_client(struct manager *mng_client, const char* strMac);
 void start_monitoring(struct manager *mng_client, const char* macClient);
 
 char *get_client_str_info(const client *cl);

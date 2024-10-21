@@ -21,25 +21,30 @@
 void *main_client_monitoring(void* args)
 {
 
-    main_client_args *mainClientArgs = (main_client_args*) args;
-    struct manager *manager = mainClientArgs->managerMain;
+    //Shallow copy
+    main_monitor_args mainClientArgs = *(main_monitor_args*) args;
+    struct manager *manager = mainClientArgs.managerMain;
+
+    pthread_mutex_t *selfMutex = &manager->registeringMutex;
+    pthread_cond_t *selfCond = &manager->registeringCond;
 
     //Shallow copy of the client
-    struct client cl = *mainClientArgs->client;
+    struct client cl = *mainClientArgs.client;
 
-    log_debug("Init monitor thread for %s\n", cl.mac);
+    log_debug("Client [%s]: init monitor thread.\n", cl.mac);
 
     //Verify that all IP asked are not already assigned on the host
     int code = verify_ips(&cl);
 
     if(code != OK)
     {
-        pthread_mutex_lock(mainClientArgs->notify);
-        mainClientArgs->error = code;
-        pthread_cond_signal(mainClientArgs->cond);
-        pthread_mutex_unlock(mainClientArgs->notify);
+        pthread_mutex_lock(selfMutex);
+        *mainClientArgs.wakupator_code = code;
+        pthread_cond_signal(selfCond);
+        pthread_mutex_unlock(selfMutex);
         return NULL;
     }
+    log_debug("Client [%s]: IP host OK.\n", cl.mac);
 
     //Structure pollfd   + 2
     //[fdIP1, fdIP2, ..., fdARP/NS, fdNotify]
@@ -47,14 +52,12 @@ void *main_client_monitoring(void* args)
 
     if(fds == NULL)
     {
-        pthread_mutex_lock(mainClientArgs->notify);
-        mainClientArgs->error = OUT_OF_MEMORY;
-        pthread_cond_signal(mainClientArgs->cond);
-        pthread_mutex_unlock(mainClientArgs->notify);
+        pthread_mutex_lock(selfMutex);
+        *mainClientArgs.wakupator_code = OUT_OF_MEMORY;
+        pthread_cond_signal(selfCond);
+        pthread_mutex_unlock(selfMutex);
         return NULL;
     }
-
-    char cmd[256];
 
     uint32_t nbSockCreated = 0;
 
@@ -69,10 +72,10 @@ void *main_client_monitoring(void* args)
             for (uint32_t k = 0; k < nbSockCreated; ++k)
                 close(fds[k].fd);
 
-            pthread_mutex_lock(mainClientArgs->notify);
-            mainClientArgs->error = MONITOR_RAW_SOCKET_CREATION_ERROR;
-            pthread_cond_signal(mainClientArgs->cond);
-            pthread_mutex_unlock(mainClientArgs->notify);
+            pthread_mutex_lock(selfMutex);
+            *mainClientArgs.wakupator_code = MONITOR_RAW_SOCKET_CREATION_ERROR;
+            pthread_cond_signal(selfCond);
+            pthread_mutex_unlock(selfMutex);
             free(fds);
             return NULL;
         }
@@ -94,11 +97,13 @@ void *main_client_monitoring(void* args)
     fds[nbSockCreated].events = POLLIN;
     nbSockCreated++;
 
+    log_debug("Client [%s]: all raw sockets created.\n", cl.mac);
+
     //------------ Notify the master that everything is OK ------------
-    pthread_mutex_lock(mainClientArgs->notify);
-    pthread_cond_signal(mainClientArgs->cond);
-    mainClientArgs->error = OK;
-    pthread_mutex_unlock(mainClientArgs->notify);
+    pthread_mutex_lock(selfMutex);
+    *mainClientArgs.wakupator_code = OK;
+    pthread_cond_signal(selfCond);
+    pthread_mutex_unlock(selfMutex);
 
     //------------ Waiting notify from master to start spoofing and monitoring ------------
 
@@ -108,20 +113,23 @@ void *main_client_monitoring(void* args)
     clock_gettime(CLOCK_REALTIME, &timeout);
     timeout.tv_sec += 10;
 
-    //Wait a notification from the main thread
-    if(pthread_cond_timedwait(mainClientArgs->selfCond, mainClientArgs->selfNotify, &timeout))
+    //Wait a notification from the main thread to start monitoring
+    if(pthread_cond_timedwait(selfCond, selfMutex, &timeout))
     {
         free(fds);
         return NULL;
     }
+    pthread_mutex_unlock(selfMutex);
+
+    char cmd[256];
 
     //Spoofs IPs
     spoof_ips(manager, &cl);
 
     //----------- Clear the raw socket for ARP and NS detection -----------
     while ((recv(fds[nbSockCreated-2].fd, cmd, sizeof(cmd), MSG_DONTWAIT)) > 0);
-    //------------ Waiting for traffic ------------
 
+    //------------ Waiting for activities ------------
     log_info("Client [%s]: Monitoring started.\n", cl.mac);
     char monitoring = 1;
 
@@ -138,6 +146,7 @@ void *main_client_monitoring(void* args)
         //We can't do a clean wake-up, because the system waits for the thread to stop quickly.
         if(fds[nbSockCreated-1].revents == POLLIN)
         {
+            log_info("Client [%s]: Wake-On-Lan sent.\n", cl.mac);
             wake_up(manager->mainRawSocket, manager->ifIndex,cl.mac);
             monitoring = 0;
         }
@@ -199,7 +208,6 @@ void *main_client_monitoring(void* args)
 
     }//Monitoring loop
 
-
     //Close all sockets created
     for (int i = 0; i < nbSockCreated - 1; ++i) {
         close(fds[i].fd);
@@ -208,13 +216,32 @@ void *main_client_monitoring(void* args)
     unregister_client(manager, cl.mac);
 
     free(fds);
-    destroy_client(&cl);
     return NULL;
 }
 
 void spoof_ips(struct manager *mng, struct client *cl)
 {
     char cmd[128];
+
+    //Get the original value of accept_dad
+    snprintf(cmd, sizeof(cmd), "sysctl net.ipv6.conf.%s.accept_dad", mng->ifName);
+    FILE *fp = popen(cmd, "r");
+
+    char originalDadValue = '1';
+
+    if(fp == NULL)
+    {
+        return;
+    }
+
+    if (fgets(cmd, sizeof(cmd), fp) != NULL) {
+        size_t len = strlen(cmd);
+        if (len > 0) {
+            originalDadValue = cmd[len - 2];
+        }
+    }
+    fclose(fp);
+
     snprintf(cmd, sizeof(cmd), "sysctl -w net.ipv6.conf.%s.accept_dad=0 > /dev/null 2>&1", mng->ifName);
     system(cmd);
 
@@ -224,7 +251,7 @@ void spoof_ips(struct manager *mng, struct client *cl)
         system(cmd);
     }
 
-    snprintf(cmd, sizeof(cmd), "sysctl -w net.ipv6.conf.%s.accept_dad=1 > /dev/null 2>&1", mng->ifName);
+    snprintf(cmd, sizeof(cmd), "sysctl -w net.ipv6.conf.%s.accept_dad=%c > /dev/null 2>&1", mng->ifName, originalDadValue);
     system(cmd);
 }
 
@@ -351,7 +378,7 @@ int create_raw_filtered_socket(const ip_port_info *ipPortInfo)
     //Clear if necessary
     while ((len = recv(rawSocket, buffer, sizeof(buffer), MSG_DONTWAIT)) > 0);
 
-    //Check if different error code returner
+    //Check if different error code returned
     if (len < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
         log_error("Error while clearing the raw socket");
         close(rawSocket);
