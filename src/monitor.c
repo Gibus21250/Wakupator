@@ -102,6 +102,8 @@ void *main_client_monitoring(void* args)
 
     //------------ Waiting notify from master to start spoofing and monitoring ------------
 
+    pthread_mutex_lock(selfMutex);
+
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
     timeout.tv_sec += 10;
