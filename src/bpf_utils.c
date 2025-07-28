@@ -53,7 +53,7 @@ uint32_t filter_ipv6(struct sock_filter *buffer, uint32_t codeIndex, const uint3
 
 uint32_t filter_protocol(struct sock_filter *buffer, uint32_t codeIndex, const uint16_t proto, const uint32_t ipFamily, const int l3Start)
 {
-    uint32_t paddingProto = ipFamily == AF_INET?9:6;
+    const uint32_t paddingProto = ipFamily == AF_INET?9:6;
     buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_LD + BPF_B + BPF_ABS, l3Start + paddingProto); //Load proto in layer IP
     buffer[codeIndex++] = (struct sock_filter) BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, proto, 1, 0);
     buffer[codeIndex++] = (struct sock_filter) BPF_STMT(BPF_RET + BPF_K, 0); //Skip current packet

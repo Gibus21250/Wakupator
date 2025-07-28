@@ -1,14 +1,10 @@
 //
 // Created by Nathan on 01/09/2024.
 //
-
 #ifndef WAKUPATOR_CORE_H
 #define WAKUPATOR_CORE_H
 
 #include <stdint.h>
-#include <sys/socket.h>
-#include <semaphore.h>
-#include <sys/poll.h>
 
 #include "client.h"
 
@@ -67,13 +63,13 @@ typedef struct manager {
     uint32_t keepClient;                        //What to do when the machine didn't seems to start after nbAttempt;
 } manager;
 
-WAKUPATOR_CODE init_manager(struct manager *mng_client, const char* ifName);
-void destroy_manager(struct manager *mng_client);
+WAKUPATOR_CODE init_manager(manager *mng_client, const char* ifName);
+void destroy_manager(manager *mng_client);
 
-WAKUPATOR_CODE register_client(struct manager *mng_client, client *newClient);
+WAKUPATOR_CODE register_client(manager *mng_client, client *newClient);
 
-void unregister_client(struct manager *mng_client, const char* strMac);
-void start_monitoring(struct manager *mng_client, const char* macClient);
+void unregister_client(manager *mng_client, const char* strMac);
+void start_monitoring(manager *mng_client, const char* macClient);
 
 char *get_client_str_info(const client *cl);
 

@@ -1,7 +1,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/socket.h>
-#include <arpa/inet.h>
 #include <string.h>
 #include <signal.h>
 #include <errno.h>
@@ -36,7 +35,7 @@ void handle_signal() {
     }
 }
 
-int wakupator_main(int argc, char **argv)
+int wakupator_main(const int argc, char **argv)
 {
     int port = 13717;
     const char* ip = NULL;
@@ -152,7 +151,7 @@ int wakupator_main(int argc, char **argv)
     }
 
     //Set parsed arguments to the manager
-    manager.keepClient = keepClient;
+    manager.keepClient = (unsigned char) keepClient;
     manager.nbAttempt = nbAttempt;
     manager.timeBtwAttempt = timeBtwAttempt;
 
@@ -226,10 +225,10 @@ int wakupator_main(int argc, char **argv)
     return 0;
 }
 
-int main(int argc, char **argv)
+int main(const int argc, char **argv)
 {
     init_log();
-    int code = wakupator_main(argc, argv);
+    const int code = wakupator_main(argc, argv);
     close_log();
     return code;
 }

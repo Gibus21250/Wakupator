@@ -5,9 +5,6 @@
 #ifndef WAKUPATOR_MONITOR_H
 #define WAKUPATOR_MONITOR_H
 
-#include <pthread.h>
-#include <netinet/tcp.h>
-
 #include "core.h"
 
 typedef struct main_monitor_args {
@@ -24,8 +21,8 @@ int create_raw_socket_arp_ns(const char macStr[18]);
 
 struct sock_fprog create_bpf_filter(const ip_port_info *ipPortInfo);
 
-void spoof_ips(struct manager *mng, struct client *cl);
-void remove_ips(struct manager *mng, struct client *cl);
+void spoof_ips(const manager *mng, const client *cl);
+void remove_ips(const manager *mng, const client *cl);
 
 int verify_ips(const client *cl);
 

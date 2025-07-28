@@ -15,9 +15,9 @@ typedef struct ip_port_info {
 } ip_port_info;
 
 typedef struct client {
-    char mac[18]; //char format MAC address
+    char mac[18]; //ASCII string format MAC address
     uint32_t countIp;
-    struct ip_port_info *ipPortInfo;
+    ip_port_info *ipPortInfo;
 } client;
 
 void destroy_client(client *cl);

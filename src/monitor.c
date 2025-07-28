@@ -15,6 +15,8 @@
 
 #include "utils.h"
 #include "monitor.h"
+#include <pthread.h>
+
 #include "bpf_utils.h"
 #include "logger.h"
 
@@ -22,19 +24,19 @@ void *main_client_monitoring(void* args)
 {
 
     //Shallow copy
-    main_monitor_args mainClientArgs = *(main_monitor_args*) args;
-    struct manager *manager = mainClientArgs.managerMain;
+    const main_monitor_args mainClientArgs = *(main_monitor_args*) args;
+    manager *manager = mainClientArgs.managerMain;
 
     pthread_mutex_t *selfMutex = &manager->registeringMutex;
     pthread_cond_t *selfCond = &manager->registeringCond;
 
     //Shallow copy of the client
-    struct client cl = *mainClientArgs.client;
+    client cl = *mainClientArgs.client;
 
     log_debug("Client [%s]: init monitor thread.\n", cl.mac);
 
     //Verify that all IP asked are not already assigned on the host
-    int code = verify_ips(&cl);
+    const int code = verify_ips(&cl);
 
     if(code != OK)
     {
@@ -44,11 +46,11 @@ void *main_client_monitoring(void* args)
         pthread_mutex_unlock(selfMutex);
         return NULL;
     }
-    log_debug("Client [%s]: IP host OK.\n", cl.mac);
+    log_debug("Client [%s]: IP(s) provided can be spoofed.\n", cl.mac);
 
-    //Structure pollfd   + 2
+    //Array: count(IP with port(s) provided) + 2 (ARP/NS & Master Notify)
     //[fdIP1, fdIP2, ..., fdARP/NS, fdNotify]
-    struct pollfd *fds = (struct pollfd*) calloc(cl.countIp + 2, sizeof(struct pollfd));
+    struct pollfd *fds = calloc(cl.countIp + 2, sizeof(struct pollfd));
 
     if(fds == NULL)
     {
@@ -61,11 +63,14 @@ void *main_client_monitoring(void* args)
 
     uint32_t nbSockCreated = 0;
 
-    //Create all socket needed: on per group IP/ports
+    //Create all socket needed: on per group IP/ports (continue if no ports was provided)
     for (uint32_t i = 0; i < cl.countIp; ++i) {
-        ip_port_info *info = &cl.ipPortInfo[i];
+        const ip_port_info *info = &cl.ipPortInfo[i];
 
-        int sock = create_raw_filtered_socket(info);
+        if (info->portCount == 0)
+            continue;
+
+        const int sock = create_raw_filtered_socket(info);
 
         if(sock == -1) //Error
         {
@@ -87,17 +92,19 @@ void *main_client_monitoring(void* args)
 
     }
 
+    log_debug("Client [%s]: %d raw sockets created. (%d IP without ports provided)\n", cl.mac, nbSockCreated, cl.countIp - nbSockCreated);
+
     //Create a raw socket to detect if the client has been started manually
     fds[nbSockCreated].fd = create_raw_socket_arp_ns(cl.mac);
     fds[nbSockCreated].events = POLLIN;
     nbSockCreated++;
 
-    //Adding at the last the pipe for handling master's notification (close socket from a pollfd seems to not unlock the thread)
+    //Adding at the last the pipe for handling master's notification (close socket from a poll fd seems to not unlock the thread)
     fds[nbSockCreated].fd = manager->notify[0];
     fds[nbSockCreated].events = POLLIN;
     nbSockCreated++;
 
-    log_debug("Client [%s]: all raw sockets created.\n", cl.mac);
+    log_debug("Client [%s]: ARP/NS and Master Notify created.\n", cl.mac);
 
     //------------ Notify the master that everything is OK ------------
     pthread_mutex_lock(selfMutex);
@@ -127,7 +134,7 @@ void *main_client_monitoring(void* args)
     spoof_ips(manager, &cl);
 
     //----------- Clear the raw socket for ARP and NS detection -----------
-    while ((recv(fds[nbSockCreated-2].fd, cmd, sizeof(cmd), MSG_DONTWAIT)) > 0);
+    while (recv(fds[nbSockCreated-2].fd, cmd, sizeof(cmd), MSG_DONTWAIT) > 0) {}
 
     //------------ Waiting for activities ------------
     log_info("Client [%s]: Monitoring started.\n", cl.mac);
@@ -161,7 +168,7 @@ void *main_client_monitoring(void* args)
         {
             log_info("Client [%s]: traffic detected.\n", cl.mac);
             int nbAttempt = 1;
-            int res;
+            int res = 0;
 
             struct timespec start_time, end_time;
             clock_gettime(CLOCK_MONOTONIC, &start_time);
@@ -183,7 +190,7 @@ void *main_client_monitoring(void* args)
             }while(res == 0 && nbAttempt <= manager->nbAttempt);
 
             clock_gettime(CLOCK_MONOTONIC, &end_time);
-            double time_spent = (double) (end_time.tv_sec - start_time.tv_sec) + (double) (end_time.tv_nsec - start_time.tv_nsec) / 1e9;
+            const double time_spent = (double) (end_time.tv_sec - start_time.tv_sec) + (double) (end_time.tv_nsec - start_time.tv_nsec) / 1e9;
 
             //The machine has been started successfully (res record one activity)
             if(res != 0)
@@ -208,7 +215,7 @@ void *main_client_monitoring(void* args)
 
     }//Monitoring loop
 
-    //Close all sockets created
+    //Close all sockets created (but not the Master Notify)
     for (int i = 0; i < nbSockCreated - 1; ++i) {
         close(fds[i].fd);
     }
@@ -219,7 +226,7 @@ void *main_client_monitoring(void* args)
     return NULL;
 }
 
-void spoof_ips(struct manager *mng, struct client *cl)
+void spoof_ips(const manager *mng, const client *cl)
 {
     char cmd[128];
 
@@ -235,7 +242,7 @@ void spoof_ips(struct manager *mng, struct client *cl)
     }
 
     if (fgets(cmd, sizeof(cmd), fp) != NULL) {
-        size_t len = strlen(cmd);
+        const size_t len = strlen(cmd);
         if (len > 0) {
             originalDadValue = cmd[len - 2];
         }
@@ -255,7 +262,7 @@ void spoof_ips(struct manager *mng, struct client *cl)
     system(cmd);
 }
 
-void remove_ips(struct manager *mng, struct client *cl)
+void remove_ips(const manager *mng, const client *cl)
 {
     char cmd[128];
     for (int i = 0; i < cl->countIp; ++i) {
@@ -271,13 +278,12 @@ void remove_ips(struct manager *mng, struct client *cl)
 int verify_ips(const client *cl)
 {
     char buffer[128];
-    FILE *fp;
 
     for (int i = 0; i < cl->countIp; ++i) {
 
         snprintf(buffer, sizeof(buffer), "ip a | grep -w %s", cl->ipPortInfo[i].ipStr);
 
-        fp = popen(buffer, "r");
+        FILE *fp = popen(buffer, "r");
         if (fp == NULL) {
             return MONITOR_CHECK_IP_ERROR;
         }
@@ -294,7 +300,7 @@ int verify_ips(const client *cl)
 
 int create_raw_socket_arp_ns(const char macStr[18])
 {
-    int rawSocket = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+    const int rawSocket = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 
     if(rawSocket == -1)
         return -1;
@@ -309,7 +315,7 @@ int create_raw_socket_arp_ns(const char macStr[18])
         return -1;
     }
 
-    struct sock_filter *bpf_code = (struct sock_filter*) calloc(10, sizeof(struct sock_filter));
+    struct sock_filter *bpf_code = calloc(10, sizeof(struct sock_filter));
 
     if(bpf_code == NULL)
     {
@@ -323,7 +329,7 @@ int create_raw_socket_arp_ns(const char macStr[18])
     codeSize = filter_mac(bpf_code, codeSize, macRaw);
     bpf_code[codeSize++] = (struct sock_filter) BPF_STMT(BPF_RET + BPF_K, -1); // Accept
 
-    struct sock_fprog bpf = {
+    const struct sock_fprog bpf = {
             .filter = bpf_code,
             .len = codeSize
     };
@@ -345,14 +351,14 @@ int create_raw_filtered_socket(const ip_port_info *ipPortInfo)
 {
 
     //Generate and prepare BPF asm for the kernel
-    uint16_t etherType = ipPortInfo->ipFormat == AF_INET ? ETH_P_IP : ETH_P_IPV6;
+    const uint16_t etherType = ipPortInfo->ipFormat == AF_INET ? ETH_P_IP : ETH_P_IPV6;
 
-    int rawSocket = socket(PF_PACKET, SOCK_RAW, htons(etherType));
+    const int rawSocket = socket(PF_PACKET, SOCK_RAW, htons(etherType));
 
     if(rawSocket == -1)
         return -1;
 
-    struct sock_fprog bpf = create_bpf_filter(ipPortInfo);
+    const struct sock_fprog bpf = create_bpf_filter(ipPortInfo);
 
     if(bpf.len == (unsigned short) -1)
     {
@@ -376,7 +382,7 @@ int create_raw_filtered_socket(const ip_port_info *ipPortInfo)
     ssize_t len;
 
     //Clear if necessary
-    while ((len = recv(rawSocket, buffer, sizeof(buffer), MSG_DONTWAIT)) > 0);
+    while ((len = recv(rawSocket, buffer, sizeof(buffer), MSG_DONTWAIT)) > 0) {}
 
     //Check if different error code returned
     if (len < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
@@ -404,14 +410,14 @@ struct sock_fprog create_bpf_filter(const ip_port_info *ipPortInfo)
         return res;
     }
 
-    struct sock_filter *bpf_code = (struct sock_filter*) calloc(100, sizeof(struct sock_filter));
+    struct sock_filter *bpf_code = calloc(100, sizeof(struct sock_filter));
 
     if(bpf_code == NULL)
     {
         return res;
     }
 
-    uint16_t etherType = ipPortInfo->ipFormat == AF_INET ? ETH_P_IP : ETH_P_IPV6;
+    const uint16_t etherType = ipPortInfo->ipFormat == AF_INET ? ETH_P_IP : ETH_P_IPV6;
 
     uint32_t codeSize = 0;
     //codeSize = filter_ether(bpf_code, codeSize, etherType);
@@ -435,8 +441,7 @@ struct sock_fprog create_bpf_filter(const ip_port_info *ipPortInfo)
 
 void wake_up(const int rawSocket, const int ifIndex, const char *macStr)
 {
-    char frame[ETH_HLEN + 102];
-    memset(frame, 0, ETH_HLEN + 102);
+    char frame[ETH_HLEN + 102] = {0};
 
     unsigned char mac_bytes[6];
     sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
@@ -455,8 +460,7 @@ void wake_up(const int rawSocket, const int ifIndex, const char *macStr)
         memcpy(frame + ETH_HLEN + i * 6, mac_bytes, 6);
     }
 
-    struct sockaddr_ll socket_address;
-    memset(&socket_address, 0, sizeof(struct sockaddr_ll));
+    struct sockaddr_ll socket_address = {0};
     socket_address.sll_ifindex = ifIndex;
     socket_address.sll_halen = ETH_ALEN;
     memcpy(socket_address.sll_addr, eth->h_dest, 6);

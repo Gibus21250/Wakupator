@@ -19,7 +19,7 @@
 #include "monitor.h"
 #include "logger.h"
 
-WAKUPATOR_CODE init_manager(struct manager *mng_client, const char* ifName)
+WAKUPATOR_CODE init_manager(manager *mng_client, const char* ifName)
 {
 
     //Create main raw socket (for sending WoL packets)
@@ -30,8 +30,7 @@ WAKUPATOR_CODE init_manager(struct manager *mng_client, const char* ifName)
         return INIT_RAW_SOCKET_CREATION_ERROR;
     }
 
-    struct ifreq ifr;
-    memset(&ifr, 0, sizeof(ifr));
+    struct ifreq ifr = {0};
 
     strncpy(ifr.ifr_name, ifName, IFNAMSIZ-1);
     if (ioctl(mng_client->mainRawSocket, SIOCGIFINDEX, &ifr) < 0)
@@ -93,7 +92,7 @@ WAKUPATOR_CODE init_manager(struct manager *mng_client, const char* ifName)
     return OK;
 }
 
-void destroy_manager(struct manager *mng_client)
+void destroy_manager(manager *mng_client)
 {
 
     pthread_mutex_lock(&mng_client->mainLock);
@@ -145,7 +144,7 @@ WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
     //If the buffer isn't big enough
     if(mng_client->count == mng_client->bufferSize)
     {
-        thread_monitor_info *tmp = (thread_monitor_info*) realloc(mng_client->clientThreadInfos, (mng_client->bufferSize + BUFFER_GROW_STEP) * sizeof(thread_monitor_info));
+        thread_monitor_info *tmp = realloc(mng_client->clientThreadInfos, (mng_client->bufferSize + BUFFER_GROW_STEP) * sizeof(thread_monitor_info));
         if(tmp != NULL)
         {
             mng_client->clientThreadInfos = tmp;
@@ -156,7 +155,7 @@ WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
         }
     }
 
-    uint32_t index = mng_client->count;
+    const uint32_t index = mng_client->count;
 
     pthread_mutex_t *childMutex = &mng_client->registeringMutex;
     pthread_cond_t *childCond = &mng_client->registeringCond;
@@ -174,7 +173,7 @@ WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
     pthread_t childThread;
 
     //Now we can start the child thread that going to monitor the client
-    if(pthread_create(&childThread, NULL, main_client_monitoring, (void*) &args))
+    if(pthread_create(&childThread, NULL, main_client_monitoring, &args))
     {
         //If error while creating the thread
         pthread_mutex_unlock(childMutex);
@@ -195,8 +194,6 @@ WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
         pthread_mutex_unlock(&mng_client->mainLock);
         return MANAGER_THREAD_INIT_TIMEOUT;
     }
-
-    log_debug("code after timedwait %d\n", code);
 
     //Check if no execution error during init phase of the child thread
     if(code != OK)
@@ -219,48 +216,48 @@ WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
     return OK;
 }
 
-void unregister_client(struct manager *mng, const char* strMac)
+void unregister_client(manager *mng_client, const char* strMac)
 {
-    pthread_mutex_lock(&mng->mainLock);
+    pthread_mutex_lock(&mng_client->mainLock);
 
-    for (int i = 0; i < mng->count; ++i) {
+    for (int i = 0; i < mng_client->count; ++i) {
         //if we found the client
-        if(strcasecmp(strMac, mng->clientThreadInfos[i].cl.mac) == 0)
+        if(strcasecmp(strMac, mng_client->clientThreadInfos[i].cl.mac) == 0)
         {
 
-            destroy_client(&mng->clientThreadInfos[i].cl);
+            destroy_client(&mng_client->clientThreadInfos[i].cl);
 
             //shift all thread_client_info to the left starting this index
-            for (int j = i; j < mng->count-1; ++j)
-                mng->clientThreadInfos[j] = mng->clientThreadInfos[(j+1)];
+            for (int j = i; j < mng_client->count-1; ++j)
+                mng_client->clientThreadInfos[j] = mng_client->clientThreadInfos[(j+1)];
 
-            mng->count--;
+            mng_client->count--;
             log_info("Client [%s] has been retired from monitoring.\n", strMac);
             break;
         }
     }
-    pthread_mutex_unlock(&mng->mainLock);
+    pthread_mutex_unlock(&mng_client->mainLock);
 }
 
-void start_monitoring(struct manager *mng, const char* macClient)
+void start_monitoring(manager *mng_client, const char* macClient)
 {
-    pthread_mutex_lock(&mng->mainLock);
+    pthread_mutex_lock(&mng_client->mainLock);
 
-    for (int i = 0; i < mng->count; ++i) {
+    for (int i = 0; i < mng_client->count; ++i) {
 
-        if(strcasecmp(macClient, mng->clientThreadInfos[i].cl.mac) == 0)
+        if(strcasecmp(macClient, mng_client->clientThreadInfos[i].cl.mac) == 0)
         {
             //Notify the thread to start!
-            pthread_mutex_lock(&mng->registeringMutex);
-            pthread_cond_signal(&mng->registeringCond);
-            pthread_mutex_unlock(&mng->registeringMutex);
+            pthread_mutex_lock(&mng_client->registeringMutex);
+            pthread_cond_signal(&mng_client->registeringCond);
+            pthread_mutex_unlock(&mng_client->registeringMutex);
             break;
         }
     }
-    pthread_mutex_unlock(&mng->mainLock);
+    pthread_mutex_unlock(&mng_client->mainLock);
 }
 
-const char* get_wakupator_message_code(WAKUPATOR_CODE code)
+const char* get_wakupator_message_code(const WAKUPATOR_CODE code)
 {
     switch (code)
     {
@@ -293,40 +290,45 @@ const char* get_wakupator_message_code(WAKUPATOR_CODE code)
 
 char *get_client_str_info(const client *cl)
 {
+
+    //Count allocation size needed
     size_t size = 0;
 
     size += snprintf(NULL, 0, "[%s]\n", cl->mac);
 
     for (int i = 0; i < cl->countIp; ++i) {
         size += snprintf(NULL, 0, "\tIP: %s, port: [", cl->ipPortInfo[i].ipStr);
+
         for (int j = 0; j < cl->ipPortInfo[i].portCount; ++j)
         {
             if (j != cl->ipPortInfo[i].portCount - 1)
                 size += snprintf(NULL, 0, "%d, ", cl->ipPortInfo[i].ports[j]);
-            else
-                size += snprintf(NULL, 0, "%d]\n", cl->ipPortInfo[i].ports[j]);
+            else //last one
+                size += snprintf(NULL, 0, "%d", cl->ipPortInfo[i].ports[j]);
         }
+        size += snprintf(NULL, 0, "]\n");
     }
 
-    char *buffer = (char*)malloc(size + 1);
+    char *buffer = malloc(size + 1);
 
     if (!buffer) {
         log_error("Out of memory\n");
         return NULL;
     }
 
-    int offset = snprintf(buffer, size + 1, "[%s]\n", cl->mac);
+    size_t offset = snprintf(buffer, size + 1, "[%s]\n", cl->mac);
 
-    for (int i = 0; i < cl->countIp; ++i)
-    {
+    for (int i = 0; i < cl->countIp; ++i) {
         offset += snprintf(buffer + offset, size + 1 - offset, "\tIP: %s, port: [", cl->ipPortInfo[i].ipStr);
+
         for (int j = 0; j < cl->ipPortInfo[i].portCount; ++j)
         {
             if (j != cl->ipPortInfo[i].portCount - 1)
                 offset += snprintf(buffer + offset, size + 1 - offset, "%d, ", cl->ipPortInfo[i].ports[j]);
-            else
-                offset += snprintf(buffer + offset, size + 1 - offset, "%d]\n", cl->ipPortInfo[i].ports[j]);
+            else //last one
+                offset += snprintf(buffer + offset, size + 1 - offset, "%d", cl->ipPortInfo[i].ports[j]);
         }
+        offset += snprintf(buffer + offset, size + 1 - offset, "]\n");
     }
 
     return buffer;

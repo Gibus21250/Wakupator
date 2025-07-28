@@ -4,12 +4,12 @@
 #include <stdio.h>
 #include <unistd.h>
 
-int init_socket(const char *ip, int port, int sockType, int protocol, struct sockaddr_storage* storeAddrInfo)
+int init_socket(const char *ip, const int port, const int sockType, const int protocol, struct sockaddr_storage* storeAddrInfo)
 {
-    int AF = (strchr(ip, ':') != NULL) ? AF_INET6 : AF_INET;
+    const int AF = (strchr(ip, ':') != NULL) ? AF_INET6 : AF_INET;
 
     // Create the socket
-    int sock = socket(AF, sockType, protocol);
+    const int sock = socket(AF, sockType, protocol);
 
     if (sock == -1) {
         return -1;
@@ -42,7 +42,7 @@ int init_socket(const char *ip, int port, int sockType, int protocol, struct soc
     return sock;
 }
 
-void print_packet_details_ipv6(struct ethhdr *eth, struct ip6_hdr *ip6, struct tcphdr *tcp)
+void print_packet_details_ipv6(const struct ethhdr *eth, const struct ip6_hdr *ip6, const struct tcphdr *tcp)
 {
     char src_ip_str[INET6_ADDRSTRLEN];
     char dest_ip_str[INET6_ADDRSTRLEN];
