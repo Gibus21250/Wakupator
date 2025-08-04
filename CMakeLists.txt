@@ -18,13 +18,13 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 endif()
 
 add_executable(wakupator src/main.c
-        ${PROJECT_SOURCE_DIR}/src/utils.c
-        ${PROJECT_SOURCE_DIR}/src/core.c
-        ${PROJECT_SOURCE_DIR}/src/parser.c
-        ${PROJECT_SOURCE_DIR}/src/monitor.c
-        ${PROJECT_SOURCE_DIR}/src/bpf.c
-        ${PROJECT_SOURCE_DIR}/src/client.c
-        ${PROJECT_SOURCE_DIR}/src/log.c)
+        src/utils/utils.c
+        src/core/core.c
+        src/parser/parser.c
+        src/core/monitor.c
+        src/utils/bpf.c
+        src/core/client.c
+        src/log/log.c)
 
 target_include_directories(wakupator PUBLIC
         ${PROJECT_SOURCE_DIR}/include
@@ -32,3 +32,5 @@ target_include_directories(wakupator PUBLIC
 )
 
 target_link_libraries(wakupator PRIVATE cJSON pthread)
+
+install(TARGETS wakupator DESTINATION bin)
