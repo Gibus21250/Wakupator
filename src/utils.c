@@ -4,15 +4,27 @@
 #include <stdio.h>
 #include <unistd.h>
 
-int init_socket(const char *ip, const int port, const int sockType, const int protocol, struct sockaddr_storage* storeAddrInfo)
+int init_socket(const char *ip, const int port, const int sockType, const int protocol, struct sockaddr_storage* storeAddrInfo, int* sockaddr_size)
 {
+    const int opt = 1;
     const int AF = (strchr(ip, ':') != NULL) ? AF_INET6 : AF_INET;
+
+    //Clear storeAddrInfo struct
+    memset(storeAddrInfo, 0, sizeof(struct sockaddr_storage));
 
     // Create the socket
     const int sock = socket(AF, sockType, protocol);
 
     if (sock == -1) {
         return -1;
+    }
+
+    // To avoid bind: Address already in use (when restarted too fast)
+    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    if (AF == AF_INET6) {
+        // Disable Dual stack listening (for [::] binding)
+        setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &opt, sizeof(opt));
     }
 
     if (AF == AF_INET) {
@@ -25,6 +37,7 @@ int init_socket(const char *ip, const int port, const int sockType, const int pr
             close(sock);
             return -1;
         }
+        *sockaddr_size = sizeof(struct sockaddr_in);
 
     } else {
         // IPv6
@@ -37,6 +50,7 @@ int init_socket(const char *ip, const int port, const int sockType, const int pr
             close(sock);
             return -1;
         }
+        *sockaddr_size = sizeof(struct sockaddr_in6);
     }
 
     return sock;

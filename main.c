@@ -118,9 +118,9 @@ int wakupator_main(const int argc, char **argv)
     }
 
     struct sockaddr_storage serverAddress;
-    const int addrLen = sizeof(struct sockaddr_storage);
+    int addrLen;
 
-    server_fd = init_socket(ip, port, SOCK_STREAM, IPPROTO_TCP, &serverAddress);
+    server_fd = init_socket(ip, port, SOCK_STREAM, IPPROTO_TCP, &serverAddress, &addrLen);
 
     if(server_fd == -1)
     {
