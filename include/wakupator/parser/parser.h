@@ -5,7 +5,7 @@
 #ifndef WAKUPATOR_PARSER_H
 #define WAKUPATOR_PARSER_H
 
-#include "core.h"
+#include "wakupator/core/core.h"
 
 WAKUPATOR_CODE parse_from_json(const char *json_raw, client *client);
 

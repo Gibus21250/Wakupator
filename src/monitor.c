@@ -13,12 +13,14 @@
 #include <net/if.h>
 #include <errno.h>
 
-#include "utils.h"
-#include "monitor.h"
 #include <pthread.h>
 
-#include "bpf_utils.h"
-#include "logger.h"
+#include "wakupator/core/monitor.h"
+
+#include "wakupator/utils/bpf.h"
+#include "wakupator/utils/utils.h"
+
+#include "wakupator/log/log.h"
 
 void *main_client_monitoring(void* args)
 {

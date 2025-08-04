@@ -1,8 +1,9 @@
-#include "utils.h"
 #include <string.h>
 #include <arpa/inet.h>
 #include <stdio.h>
 #include <unistd.h>
+
+#include "wakupator/utils/utils.h"
 
 int init_socket(const char *ip, const int port, const int sockType, const int protocol, struct sockaddr_storage* storeAddrInfo, int* sockaddr_size)
 {

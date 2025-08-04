@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-#include "client.h"
+#include "wakupator/core/client.h"
 
 typedef enum WAKUPATOR_CODE {
     OK = 0,

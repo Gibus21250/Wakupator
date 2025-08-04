@@ -15,9 +15,9 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 
-#include "core.h"
-#include "monitor.h"
-#include "logger.h"
+#include "wakupator/core/core.h"
+#include "wakupator/core/monitor.h"
+#include "wakupator/log/log.h"
 
 WAKUPATOR_CODE init_manager(manager *mng_client, const char* ifName)
 {

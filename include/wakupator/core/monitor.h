@@ -5,7 +5,7 @@
 #ifndef WAKUPATOR_MONITOR_H
 #define WAKUPATOR_MONITOR_H
 
-#include "core.h"
+#include "wakupator/core/core.h"
 
 typedef struct main_monitor_args {
     manager *managerMain;               //Pointer to the manager struct

@@ -6,9 +6,9 @@
 #include <ctype.h>
 #include <arpa/inet.h>
 
-#include "cJSON/cJSON.h"
+#include <cJSON/cJSON.h>
 
-#include "parser.h"
+#include "wakupator/parser/parser.h"
 
 WAKUPATOR_CODE parse_from_json(const char *json_raw, client* client)
 {

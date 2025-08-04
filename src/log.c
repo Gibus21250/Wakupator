@@ -5,6 +5,8 @@
 #include <stdarg.h>
 #include <syslog.h>
 
+#include "wakupator/log/log.h"
+
 void init_log()
 {
     openlog("Wakupator", LOG_PID | LOG_CONS, LOG_USER);

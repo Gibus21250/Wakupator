@@ -4,7 +4,7 @@
 #include <byteswap.h>
 #include <arpa/inet.h>
 
-#include "bpf_utils.h"
+#include "wakupator/utils/bpf.h"
 
 uint32_t filter_ether(struct sock_filter *buffer, uint32_t codeIndex, const unsigned short etherType)
 {

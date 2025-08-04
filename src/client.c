@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "client.h"
+#include "wakupator/core/client.h"
 
 void destroy_client(client *cl)
 {

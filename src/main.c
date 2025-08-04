@@ -5,10 +5,14 @@
 #include <signal.h>
 #include <errno.h>
 
-#include "utils.h"
-#include "parser.h"
-#include "core.h"
-#include "logger.h"
+#include "wakupator/core/client.h"
+#include "wakupator/core/core.h"
+
+#include "wakupator/parser/parser.h"
+
+#include "wakupator/utils/utils.h"
+
+#include "wakupator/log/log.h"
 
 #define BUFFER_SIZE 2048
 int server_fd = -1;
