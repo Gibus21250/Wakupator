@@ -24,7 +24,10 @@ add_executable(wakupator src/main.c
         src/core/monitor.c
         src/utils/bpf.c
         src/core/client.c
-        src/log/log.c)
+        src/log/log.c
+        include/wakupator/utils/net.h
+        src/utils/net.c
+)
 
 target_include_directories(wakupator PUBLIC
         ${PROJECT_SOURCE_DIR}/include

@@ -7,7 +7,6 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <stdlib.h>
 #include <memory.h>
 #include <netpacket/packet.h>
 #include <net/if.h>
@@ -21,6 +20,7 @@
 #include "wakupator/utils/utils.h"
 
 #include "wakupator/log/log.h"
+#include "wakupator/utils/net.h"
 
 void *main_client_monitoring(void* args)
 {
@@ -128,7 +128,9 @@ void *main_client_monitoring(void* args)
         log_info("Client [%s]: shutdown delay elapsed.\n", cl.mac);
     }
 
-    //Spoofs IPs
+    char buffer[1024];
+
+    //----------- Spoofing IPs -----------
     spoof_ips(manager, &cl);
 
     log_info("Client [%s]: start monitoring.\n", cl.mac);
@@ -163,6 +165,7 @@ void *main_client_monitoring(void* args)
         //Other "real" traffic monitored
         else
         {
+            //TODO add information on the traffic (ip src, port)
             log_info("Client [%s]: traffic detected.\n", cl.mac);
             int nbAttempt = 1;
             int res = 0;
@@ -225,72 +228,29 @@ void *main_client_monitoring(void* args)
 
 void spoof_ips(const manager *mng, const client *cl)
 {
-    char cmd[128];
-
-    //Get the original value of accept_dad
-    snprintf(cmd, sizeof(cmd), "sysctl net.ipv6.conf.%s.accept_dad", mng->ifName);
-    FILE *fp = popen(cmd, "r");
-
-    char originalDadValue = '1';
-
-    if(fp == NULL)
-    {
-        return;
-    }
-
-    if (fgets(cmd, sizeof(cmd), fp) != NULL) {
-        const size_t len = strlen(cmd);
-        if (len > 0) {
-            originalDadValue = cmd[len - 2];
-        }
-    }
-    fclose(fp);
-
-    snprintf(cmd, sizeof(cmd), "sysctl -w net.ipv6.conf.%s.accept_dad=0 > /dev/null 2>&1", mng->ifName);
-    system(cmd);
-
     //Assign IP of the client on the host
     for (int j = 0; j < cl->countIp; ++j) {
-        snprintf(cmd, sizeof(cmd), "ip a add %s dev %s", cl->ipPortInfo[j].ipStr, mng->ifName);
-        system(cmd);
+        //TODO add Ip to the custom veth
+        add_ip(mng->ifName, cl->ipPortInfo[j].ipStr);
     }
-
-    snprintf(cmd, sizeof(cmd), "sysctl -w net.ipv6.conf.%s.accept_dad=%c > /dev/null 2>&1", mng->ifName, originalDadValue);
-    system(cmd);
 }
 
 void remove_ips(const manager *mng, const client *cl)
 {
-    char cmd[128];
     for (int i = 0; i < cl->countIp; ++i) {
-        if(cl->ipPortInfo[i].ipFormat == AF_INET6)
-            snprintf(cmd, sizeof(cmd), "ip a del %s/128 dev %s", cl->ipPortInfo[i].ipStr, mng->ifName);
-        else
-            snprintf(cmd, sizeof(cmd), "ip a del %s/32 dev %s", cl->ipPortInfo[i].ipStr, mng->ifName);
-
-        system(cmd);
+        //TODO create a new virtual interface per client (to improve visibility)
+        remove_ip(mng->ifName, cl->ipPortInfo[i].ipStr);
     }
 }
 
 int verify_ips(const client *cl)
 {
-    char buffer[128];
-
     for (int i = 0; i < cl->countIp; ++i) {
+        ip_search_result_t result;
 
-        snprintf(buffer, sizeof(buffer), "ip a | grep -w %s", cl->ipPortInfo[i].ipStr);
-
-        FILE *fp = popen(buffer, "r");
-        if (fp == NULL) {
-            return MONITOR_CHECK_IP_ERROR;
-        }
-
-        if (fgets(buffer, sizeof(buffer), fp) != NULL) {
-            pclose(fp);
+        if (check_ip_exists(cl->ipPortInfo->ipStr, &result) == 1) {
             return MONITOR_IP_ALREADY_USED;
         }
-        pclose(fp);
-
     }
     return OK;
 }
