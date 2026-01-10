@@ -5,7 +5,7 @@
 
 #include "wakupator/utils/utils.h"
 
-int init_socket(const char *ip, const int port, const int sockType, const int protocol, struct sockaddr_storage* storeAddrInfo, int* sockaddr_size)
+int init_ip_socket(const char *ip, const int port, const int sockType, const int protocol, struct sockaddr_storage* storeAddrInfo, int* sockaddr_size)
 {
     const int opt = 1;
     const int AF = (strchr(ip, ':') != NULL) ? AF_INET6 : AF_INET;
