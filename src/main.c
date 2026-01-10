@@ -234,8 +234,6 @@ int wakupator_main(const int argc, char **argv)
 
 int main(const int argc, char **argv)
 {
-    init_log();
     const int code = wakupator_main(argc, argv);
-    close_log();
     return code;
 }
