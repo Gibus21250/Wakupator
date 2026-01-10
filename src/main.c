@@ -14,7 +14,7 @@
 
 #include "wakupator/log/log.h"
 
-#define BUFFER_SIZE 2048
+#define BUFFER_SIZE 4096
 int server_fd = -1;
 
 const char* help_message =
@@ -181,7 +181,10 @@ int wakupator_main(const int argc, char **argv)
         }
 
         //Reading the JSON from the client
-        read(client_fd, buffer, BUFFER_SIZE);
+        uint32_t size = read(client_fd, buffer, BUFFER_SIZE);
+        if (size == 0)
+            continue;
+
         log_debug("New registration received: %s\n", buffer);
 
         client cl;
