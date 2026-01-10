@@ -9,8 +9,6 @@
 
 #define BUFFER_GROW_STEP 4
 
-#include <sys/eventfd.h>
-#include <fcntl.h>
 #include <stdlib.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
@@ -127,6 +125,10 @@ void destroy_manager(manager *mng_client)
 
 }
 
+/**
+ * Register the client into the manager, and prepare the client's monitoring thread.
+ * @return OK if done, otherwise the client hasn't been registered
+ */
 WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
 {
     //Lock the manager struct
@@ -186,7 +188,7 @@ WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
     timeout.tv_sec += 5; //more than 5 seconds to launch the thread is like an error
 
     //Wait a notification from the child thread, and this can time out
-    //This call implicit atomically unlock the mutex, and mainLock it again after cond notified
+    //This call implicit atomically unlock the mutex, and main Lock it again after cond notified
     if(pthread_cond_timedwait(childCond, childMutex, &timeout))
     {
         pthread_mutex_unlock(childMutex);
@@ -205,7 +207,7 @@ WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
     }
 
     //Finally, everything is ok
-    //Shallow copy of the client, the child thread is responsible to the struct
+    //Shallow copy of the client, the child thread is responsible for the struct
     mng_client->clientThreadInfos[index].cl = *newClient;
     mng_client->clientThreadInfos[index].thread = childThread;
     mng_client->count++;

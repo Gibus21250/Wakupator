@@ -181,7 +181,7 @@ int wakupator_main(const int argc, char **argv)
         }
 
         //Reading the JSON from the client
-        uint32_t size = read(client_fd, buffer, BUFFER_SIZE);
+        const uint32_t size = read(client_fd, buffer, BUFFER_SIZE);
         if (size == 0)
             continue;
 
@@ -201,6 +201,12 @@ int wakupator_main(const int argc, char **argv)
         }
 
         log_debug("Parsing OK\n");
+
+        /*
+         * Two steps monitoring:
+         * - register the client to the client manager
+         * - Then start monitoring
+         */
 
         code = register_client(&manager, &cl);
 
