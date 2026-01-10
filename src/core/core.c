@@ -273,6 +273,7 @@ const char* get_wakupator_message_code(const WAKUPATOR_CODE code)
 
         case PARSING_CJSON_ERROR: return "An error has been found in the JSON. Please check the types, key names and structure.";
         case PARSING_INVALID_MAC_ADDRESS: return "Invalid MAC address format.";
+        case PARSING_INVALID_SHUTDOWN_TIME_FORMAT: return "Invalid Shutdown value format.";
         case PARSING_INVALID_IP_ADDRESS: return "Invalid IP address format.";
         case PARSING_DUPLICATED_IP_ADDRESS: return "A duplicate IP has been found in the JSON, please merge all ports in an array for this IP.";
         case PARSING_INVALID_PORT: return "Invalid port value.";

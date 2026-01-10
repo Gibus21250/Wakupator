@@ -10,7 +10,7 @@
 
 #include "wakupator/parser/parser.h"
 
-WAKUPATOR_CODE parse_from_json(const char *json_raw, client* client)
+WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
 {
     cJSON *json = cJSON_Parse(json_raw);
     if (json == NULL)
@@ -20,6 +20,7 @@ WAKUPATOR_CODE parse_from_json(const char *json_raw, client* client)
     client->mac[0] = 0;
     client->ipPortInfo = NULL;
     client->countIp = 0;
+    client->shutdownTime = 0;
 
     const cJSON *mac = cJSON_GetObjectItemCaseSensitive(json, "mac");
 
@@ -31,6 +32,18 @@ WAKUPATOR_CODE parse_from_json(const char *json_raw, client* client)
     }
 
     memcpy(client->mac, mac->valuestring, 18 * sizeof(char));
+
+    //Check if shutdown_time provided:
+
+    const cJSON *shutdownTime = cJSON_GetObjectItemCaseSensitive(json, "shutdown_time");
+
+    if (!cJSON_IsNull(shutdownTime) && !cJSON_IsNumber(shutdownTime))
+    {
+        cJSON_Delete(json);
+        return PARSING_INVALID_SHUTDOWN_TIME_FORMAT;
+    }
+
+    client->shutdownTime = shutdownTime->valueint;
 
     //Now extract all ip and ports asked for monitoring
     const cJSON *monitor_array = cJSON_GetObjectItemCaseSensitive(json, "monitor");

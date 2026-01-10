@@ -190,7 +190,7 @@ int wakupator_main(const int argc, char **argv)
         client cl;
         const char *message;
 
-        code = parse_from_json(buffer, &cl);
+        code = create_client_from_json(buffer, &cl);
 
         if(code != OK) {
             message = get_wakupator_message_code(code);
@@ -220,13 +220,13 @@ int wakupator_main(const int argc, char **argv)
             continue;
         }
 
-        //Notify the monitor thread to spoof IPs and start monitoring
-        start_monitoring(&manager, cl.mac);
-
         char* info = get_client_str_info(&cl);
         if(info != NULL)
             log_info("New client registered: %s\n", info);
         free(info);
+
+        //Notify the monitor thread to spoof IPs and start monitoring
+        start_monitoring(&manager, cl.mac);
 
     }
 

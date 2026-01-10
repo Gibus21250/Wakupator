@@ -7,7 +7,7 @@
 
 #include "wakupator/core/core.h"
 
-WAKUPATOR_CODE parse_from_json(const char *json_raw, client *client);
+WAKUPATOR_CODE create_client_from_json(const char *json_raw, client *client);
 
 int verify_mac_format(const char *strMac);
 

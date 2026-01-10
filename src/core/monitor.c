@@ -117,33 +117,28 @@ void *main_client_monitoring(void* args)
     //------------ Waiting notify from master to start spoofing and monitoring ------------
 
     pthread_mutex_lock(selfMutex);
-
-    struct timespec timeout;
-    clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 10;
-
-    //Wait a notification from the main thread to start monitoring
-    if(pthread_cond_timedwait(selfCond, selfMutex, &timeout))
-    {
-        free(fds);
-        return NULL;
-    }
+    pthread_cond_wait(selfCond, selfMutex);
     pthread_mutex_unlock(selfMutex);
 
-    char cmd[256];
+    if(cl.shutdownTime > 0)
+    {
+        log_info("Client [%s]: waiting %d seconds for complete shutdown before monitoring...\n",
+                 cl.mac, cl.shutdownTime);
+        sleep(cl.shutdownTime);
+        log_info("Client [%s]: shutdown delay elapsed.\n", cl.mac);
+    }
 
     //Spoofs IPs
     spoof_ips(manager, &cl);
 
-    //----------- Clear the raw socket for ARP and NS detection -----------
-    while (recv(fds[nbSockCreated-2].fd, cmd, sizeof(cmd), MSG_DONTWAIT) > 0) {}
-
-    //------------ Waiting for activities ------------
-    log_info("Client [%s]: Monitoring started.\n", cl.mac);
+    log_info("Client [%s]: start monitoring.\n", cl.mac);
     char monitoring = 1;
 
     while (monitoring)
     {
+        //----------- Clear the raw socket for ARP and NS detection -----------
+        while (recv(fds[nbSockCreated-2].fd, buffer, sizeof(buffer), MSG_DONTWAIT) > 0) {}
+
         poll(fds, nbSockCreated, -1); //Waiting traffic
 
         //----------- traffic has been caught ------------
