@@ -34,6 +34,12 @@ target_include_directories(wakupator PUBLIC
         ${PROJECT_SOURCE_DIR}/third_party/cJSON/include
 )
 
+add_custom_command(
+        TARGET wakupator
+        POST_BUILD
+        COMMAND sudo setcap cap_net_raw,cap_net_admin+ep $<TARGET_FILE:wakupator>
+        COMMENT "Setting ap_net_raw and cap_net_admin capabilities on wakupator"
+)
 target_link_libraries(wakupator PRIVATE cJSON pthread)
 
 install(TARGETS wakupator DESTINATION bin)
