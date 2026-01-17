@@ -165,8 +165,32 @@ void *main_client_monitoring(void* args)
         //Other "real" traffic monitored
         else
         {
-            //TODO add information on the traffic (ip src, port)
             log_info("Client [%s]: traffic detected.\n", cl.mac);
+
+            for (int i = 0; i < nbSockCreated; i++)
+            {
+                if (fds[i].revents & POLLIN)
+                {
+                    unsigned char packet[65536];
+                    struct sockaddr_ll saddr;
+                    socklen_t saddrLen = sizeof(saddr);
+
+                    const ssize_t packet_size = recvfrom(fds[i].fd, packet, sizeof(packet), 0,
+                                                   (struct sockaddr *)&saddr, &saddrLen);
+
+                    if (packet_size > 0)
+                    {
+                        const char* packet_info = print_ip_packet_info(packet, packet_size);
+
+                        if (packet_info) {
+                            log_info("Client [%s]: Packet Info: %s.\n", cl.mac, packet_info);
+                            free((void*) packet_info);
+                        }
+
+                    }
+                }
+            }
+
             int nbAttempt = 1;
             int res = 0;
 

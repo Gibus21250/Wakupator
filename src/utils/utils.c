@@ -1,9 +1,16 @@
 #include <string.h>
-#include <arpa/inet.h>
 #include <stdio.h>
 #include <unistd.h>
 
+#include <netinet/ip.h>
+#include <netinet/ip6.h>
+#include <netinet/tcp.h>
+
+#include <arpa/inet.h>
+
 #include "wakupator/utils/utils.h"
+
+#include <stdlib.h>
 
 int init_ip_socket(const char *ip, const int port, const int sockType, const int protocol, struct sockaddr_storage* storeAddrInfo, int* sockaddr_size)
 {
@@ -55,6 +62,69 @@ int init_ip_socket(const char *ip, const int port, const int sockType, const int
     }
 
     return sock;
+}
+
+const char* print_ip_packet_info(const unsigned char *buffer, ssize_t packet_size)
+{
+
+    const size_t MSG_SIZE = 512;
+    char* message = (char*) malloc(MSG_SIZE * sizeof (const char));
+
+    if (!message)
+        return NULL;
+
+    if (packet_size < sizeof(struct ethhdr)) {
+        sprintf(message, "Packet is too small. (%ld bytes)", packet_size);
+        return message;
+    }
+
+    char src_ip_str[INET6_ADDRSTRLEN+2];
+    char dst_ip_str[INET6_ADDRSTRLEN+2];
+    uint16_t dst_port = 0;
+    uint16_t src_port = 0;
+
+    struct ethhdr *eth = (struct ethhdr *)buffer;
+    uint16_t ether_type = ntohs(eth->h_proto);
+
+    if (ether_type == ETH_P_IP)
+    {
+        struct iphdr *ip4 = (struct iphdr *)(buffer + sizeof(struct ethhdr));
+
+        if (ip4->protocol == IPPROTO_TCP)
+        {
+            struct tcphdr *tcp = (struct tcphdr *)(buffer + sizeof(struct ethhdr) + (ip4->ihl * 4));
+            dst_port = ntohs(tcp->dest);
+            src_port = ntohs(tcp->source);
+
+            inet_ntop(AF_INET, &ip4->saddr, src_ip_str, INET_ADDRSTRLEN);
+            inet_ntop(AF_INET, &ip4->daddr, dst_ip_str, INET_ADDRSTRLEN);
+
+        }
+    }
+    else if (ether_type == ETH_P_IPV6)
+    {
+        struct ip6_hdr *ip6 = (struct ip6_hdr *)(buffer + sizeof(struct ethhdr));
+
+        if (ip6->ip6_nxt == IPPROTO_TCP)
+        {
+            struct tcphdr *tcp = (struct tcphdr *)(buffer + sizeof(struct ethhdr) + sizeof(struct ip6_hdr));
+            dst_port = ntohs(tcp->dest);
+            src_port = ntohs(tcp->source);
+
+            char tmp_ip[INET6_ADDRSTRLEN];
+            inet_ntop(AF_INET6, &ip6->ip6_src, tmp_ip, INET6_ADDRSTRLEN);
+            snprintf(src_ip_str, INET6_ADDRSTRLEN, "[%s]", tmp_ip);
+
+            inet_ntop(AF_INET6, &ip6->ip6_dst, tmp_ip, INET6_ADDRSTRLEN);
+            snprintf(dst_ip_str, INET6_ADDRSTRLEN, "[%s]", tmp_ip);
+
+        }
+    }
+
+    snprintf(message, MSG_SIZE, "From %s:%u to %s:%u", src_ip_str, src_port, dst_ip_str, dst_port);
+
+    return message;
+
 }
 
 void print_packet_details_ipv6(const struct ethhdr *eth, const struct ip6_hdr *ip6, const struct tcphdr *tcp)
