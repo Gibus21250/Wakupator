@@ -218,8 +218,9 @@ WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
     return OK;
 }
 
-void unregister_client(manager *mng_client, const char* strMac)
+int unregister_client(manager *mng_client, const char* strMac)
 {
+    int found = 0;
     pthread_mutex_lock(&mng_client->mainLock);
 
     for (int i = 0; i < mng_client->count; ++i) {
@@ -234,11 +235,12 @@ void unregister_client(manager *mng_client, const char* strMac)
                 mng_client->clientThreadInfos[j] = mng_client->clientThreadInfos[(j+1)];
 
             mng_client->count--;
-            log_info("Client [%s] has been retired from monitoring.\n", strMac);
+            found = 1;
             break;
         }
     }
     pthread_mutex_unlock(&mng_client->mainLock);
+    return found;
 }
 
 void start_monitoring(manager *mng_client, const char* macClient)

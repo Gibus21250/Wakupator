@@ -71,7 +71,7 @@ void destroy_manager(manager *mng_client);
 
 WAKUPATOR_CODE register_client(manager *mng_client, client *newClient);
 
-void unregister_client(manager *mng_client, const char* strMac);
+int unregister_client(manager *mng_client, const char* strMac);
 void start_monitoring(manager *mng_client, const char* macClient);
 
 char *get_client_str_info(const client *cl);
