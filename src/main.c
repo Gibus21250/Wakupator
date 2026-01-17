@@ -7,6 +7,7 @@
 
 #include "wakupator/core/client.h"
 #include "wakupator/core/core.h"
+#include "wakupator/core/manager.h"
 
 #include "wakupator/parser/parser.h"
 

@@ -15,6 +15,7 @@
 #include <pthread.h>
 
 #include "wakupator/core/monitor.h"
+#include "wakupator/core/manager.h"
 
 #include "wakupator/utils/bpf.h"
 #include "wakupator/utils/utils.h"
@@ -248,7 +249,9 @@ void *main_client_monitoring(void* args)
         close(fds[i].fd);
     }
 
-    unregister_client(manager, cl.mac);
+    if (unregister_client(manager, cl.mac)) {
+        log_info("%s: has been retired from monitoring.\n", clientHeader);
+    }
 
     free(fds);
     return NULL;

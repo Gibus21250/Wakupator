@@ -5,7 +5,7 @@
 #ifndef WAKUPATOR_MONITOR_H
 #define WAKUPATOR_MONITOR_H
 
-#include "wakupator/core/core.h"
+#include "wakupator/core/manager.h"
 
 typedef struct main_monitor_args {
     manager *managerMain;               //Pointer to the manager struct
@@ -27,7 +27,5 @@ void remove_ips(const manager *mng, const client *cl);
 int verify_ips(const client *cl);
 
 void wake_up(int rawSocket, int ifIndex, const char *macStr);
-
-
 
 #endif //WAKUPATOR_MONITOR_H

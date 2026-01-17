@@ -27,6 +27,8 @@ add_executable(wakupator src/main.c
         src/log/log.c
         include/wakupator/utils/net.h
         src/utils/net.c
+        include/wakupator/core/manager.h
+        src/core/manager.c
 )
 
 target_include_directories(wakupator PUBLIC

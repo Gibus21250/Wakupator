@@ -24,4 +24,6 @@ typedef struct client {
 
 void destroy_client(client *cl);
 
+char *get_client_str_info(const client *cl);
+
 #endif //WAKUPATOR_CLIENT_H
