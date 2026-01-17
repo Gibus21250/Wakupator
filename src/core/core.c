@@ -185,7 +185,7 @@ WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
 
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_sec += 5; //more than 5 seconds to launch the thread is like an error
+    timeout.tv_sec += 5; //more than 5 seconds to launch the chill thread is like an error
 
     //Wait a notification from the child thread, and this can time out
     //This call implicit atomically unlock the mutex, and main Lock it again after cond notified
@@ -274,6 +274,8 @@ const char* get_wakupator_message_code(const WAKUPATOR_CODE code)
         case PARSING_CJSON_ERROR: return "An error has been found in the JSON. Please check the types, key names and structure.";
         case PARSING_INVALID_MAC_ADDRESS: return "Invalid MAC address format.";
         case PARSING_INVALID_SHUTDOWN_TIME_FORMAT: return "Invalid Shutdown value format.";
+        case PARSING_INVALID_NAME_FORMAT: return "Invalid Name format.";
+        case PARSING_INVALID_NAME_TOO_LONG: return "Name value is too long (max 45 char).";
         case PARSING_INVALID_IP_ADDRESS: return "Invalid IP address format.";
         case PARSING_DUPLICATED_IP_ADDRESS: return "A duplicate IP has been found in the JSON, please merge all ports in an array for this IP.";
         case PARSING_INVALID_PORT: return "Invalid port value.";
@@ -297,10 +299,11 @@ char *get_client_str_info(const client *cl)
     //Count allocation size needed
     size_t size = 0;
 
-    size += snprintf(NULL, 0, "[%s]\n", cl->mac);
+    size += snprintf(NULL, 0, "%s (%s)\n", cl->name, cl->mac);
+    size += snprintf(NULL, 0, "\tMonitored IP/port(s):\n");
 
     for (int i = 0; i < cl->countIp; ++i) {
-        size += snprintf(NULL, 0, "\tIP: %s, port: [", cl->ipPortInfo[i].ipStr);
+        size += snprintf(NULL, 0, "\t\t- %s on port: [", cl->ipPortInfo[i].ipStr);
 
         for (int j = 0; j < cl->ipPortInfo[i].portCount; ++j)
         {
@@ -319,10 +322,11 @@ char *get_client_str_info(const client *cl)
         return NULL;
     }
 
-    size_t offset = snprintf(buffer, size + 1, "[%s]\n", cl->mac);
+    size_t offset = snprintf(buffer, size + 1, "%s (%s)\n", cl->name, cl->mac);
+    offset += snprintf(buffer + offset, size + 1, "\tMonitored IP/port(s):\n");
 
     for (int i = 0; i < cl->countIp; ++i) {
-        offset += snprintf(buffer + offset, size + 1 - offset, "\tIP: %s, port: [", cl->ipPortInfo[i].ipStr);
+        offset += snprintf(buffer + offset, size + 1 - offset, "\t\t- %s on port: [", cl->ipPortInfo[i].ipStr);
 
         for (int j = 0; j < cl->ipPortInfo[i].portCount; ++j)
         {

@@ -18,6 +18,7 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
 
     //Init the client struct
     client->mac[0] = 0;
+    client->name[0] = 0;
     client->ipPortInfo = NULL;
     client->countIp = 0;
     client->shutdownTime = 0;
@@ -31,10 +32,9 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
         return PARSING_INVALID_MAC_ADDRESS;
     }
 
-    memcpy(client->mac, mac->valuestring, 18 * sizeof(char));
+    memcpy(client->mac, mac->valuestring, sizeof(client->mac));
 
     //Check if shutdown_time provided:
-
     const cJSON *shutdownTime = cJSON_GetObjectItemCaseSensitive(json, "shutdown_time");
 
     if (!cJSON_IsNull(shutdownTime) && !cJSON_IsNumber(shutdownTime))
@@ -44,6 +44,22 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
     }
 
     client->shutdownTime = shutdownTime->valueint;
+
+    const cJSON *name = cJSON_GetObjectItemCaseSensitive(json, "name");
+
+    //Check for Name validity
+    if (!cJSON_IsString(name) || (name->valuestring == NULL))
+    {
+        cJSON_Delete(json);
+        return PARSING_INVALID_NAME_FORMAT;
+    }
+
+    if (strlen(name->valuestring) > sizeof(client->name)-1) {
+        cJSON_Delete(json);
+        return PARSING_INVALID_NAME_TOO_LONG;
+    }
+
+    memcpy(client->name, name->valuestring, sizeof(client->name));
 
     //Now extract all ip and ports asked for monitoring
     const cJSON *monitor_array = cJSON_GetObjectItemCaseSensitive(json, "monitor");

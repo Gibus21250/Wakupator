@@ -35,7 +35,10 @@ void *main_client_monitoring(void* args)
     //Shallow copy of the client
     client cl = *mainClientArgs.client;
 
-    log_debug("Client [%s]: init monitor thread.\n", cl.mac);
+    char clientHeader[sizeof(cl.mac) + sizeof(cl.name) + 16];
+    sprintf(clientHeader, "Client %s (%s)", cl.name, cl.mac);
+
+    log_debug("%s: init monitor thread.\n", clientHeader);
 
     //Verify that all IP asked are not already assigned on the host
     const int code = verify_ips(&cl);
@@ -48,7 +51,7 @@ void *main_client_monitoring(void* args)
         pthread_mutex_unlock(selfMutex);
         return NULL;
     }
-    log_debug("Client [%s]: IP(s) provided can be spoofed.\n", cl.mac);
+    log_debug("%s: IP(s) provided can be spoofed.\n", clientHeader);
 
     //Array: count(IP with port(s) provided) + 2 (ARP/NS & Master Notify)
     //[fdIP1, fdIP2, ..., fdARP/NS, fdNotify]
@@ -94,7 +97,7 @@ void *main_client_monitoring(void* args)
 
     }
 
-    log_debug("Client [%s]: %d raw sockets created. (%d IP without ports provided)\n", cl.mac, nbSockCreated, cl.countIp - nbSockCreated);
+    log_debug("%s: %d raw sockets created. (%d IP without ports provided)\n", clientHeader, nbSockCreated, cl.countIp - nbSockCreated);
 
     //Create a raw socket to detect if the client has been started manually
     fds[nbSockCreated].fd = create_raw_socket_arp_ns(cl.mac);
@@ -106,7 +109,7 @@ void *main_client_monitoring(void* args)
     fds[nbSockCreated].events = POLLIN;
     nbSockCreated++;
 
-    log_debug("Client [%s]: ARP/NS and Master Notify created.\n", cl.mac);
+    log_debug("%s: ARP/NS and Master Notify created.\n", clientHeader);
 
     //------------ Notify the master that everything is OK ------------
     pthread_mutex_lock(selfMutex);
@@ -122,10 +125,10 @@ void *main_client_monitoring(void* args)
 
     if(cl.shutdownTime > 0)
     {
-        log_info("Client [%s]: waiting %d seconds for complete shutdown before monitoring...\n",
-                 cl.mac, cl.shutdownTime);
+        log_info("%s: waiting %d seconds for complete shutdown before monitoring...\n",
+                 clientHeader, cl.shutdownTime);
         sleep(cl.shutdownTime);
-        log_info("Client [%s]: shutdown delay elapsed.\n", cl.mac);
+        log_info("%s: shutdown delay elapsed.\n", clientHeader);
     }
 
     char buffer[1024];
@@ -133,7 +136,7 @@ void *main_client_monitoring(void* args)
     //----------- Spoofing IPs -----------
     spoof_ips(manager, &cl);
 
-    log_info("Client [%s]: start monitoring.\n", cl.mac);
+    log_info("%s: start monitoring.\n", clientHeader);
     char monitoring = 1;
 
     while (monitoring)
@@ -152,21 +155,21 @@ void *main_client_monitoring(void* args)
         //We can't do a clean wake-up, because the system waits for the thread to stop quickly.
         if(fds[nbSockCreated-1].revents == POLLIN)
         {
-            log_info("Client [%s]: Notification receive from main thread.\n", cl.mac);
-            log_info("Client [%s]: Wake-On-Lan sent.\n", cl.mac);
+            log_info("%s: Notification receive from main thread.\n", clientHeader);
+            log_info("%s: Wake-On-Lan sent.\n", clientHeader);
             wake_up(manager->mainRawSocket, manager->ifIndex, cl.mac);
             monitoring = 0;
         }
         //If the traffic is an ARP/NS
         else if(fds[nbSockCreated-2].revents == POLLIN)
         {
-            log_info("Client [%s]: the machine has been started manually.\n", cl.mac);
+            log_info("%s: the machine has been started manually.\n", clientHeader);
             monitoring = 0;
         }
         //Other "real" traffic monitored
         else
         {
-            log_info("Client [%s]: traffic detected.\n", cl.mac);
+            log_info("%s: traffic detected.\n", clientHeader);
 
             for (int i = 0; i < nbSockCreated; i++)
             {
@@ -184,7 +187,7 @@ void *main_client_monitoring(void* args)
                         const char* packet_info = print_ip_packet_info(packet, packet_size);
 
                         if (packet_info) {
-                            log_info("Client [%s]: Packet Info: %s.\n", cl.mac, packet_info);
+                            log_info("%s: Packet Info: %s.\n", clientHeader, packet_info);
                             free((void*) packet_info);
                         }
 
@@ -203,7 +206,7 @@ void *main_client_monitoring(void* args)
                 //If we receive anything from the machine (arp, ns etc.), that means that the machine is up!
                 if(fds[nbSockCreated-2].revents == POLLIN)
                     break;
-                log_info("Client [%s]: Wake-On-Lan sent. (attempt %d)\n", cl.mac, nbAttempt);
+                log_info("%s: Wake-On-Lan sent. (attempt %d)\n", clientHeader, nbAttempt);
                 //Attempt a WoL
                 wake_up(manager->mainRawSocket, manager->ifIndex,cl.mac);
                 nbAttempt++;
@@ -220,7 +223,7 @@ void *main_client_monitoring(void* args)
             //The machine has been started successfully (res record one activity)
             if(res != 0)
             {
-                log_info("Client [%s]: the machine has been started successfully. (%.2fs)\n", cl.mac, time_spent);
+                log_info("%s: the machine has been started successfully. (%.2fs)\n", clientHeader, time_spent);
                 monitoring = 0;
             }
             else
@@ -228,10 +231,10 @@ void *main_client_monitoring(void* args)
                 if(manager->keepClient == 1)
                 {
                     spoof_ips(manager, &cl);
-                    log_info("Client [%s]: the machine does not appear to have started after %d attempts, monitoring resumes. (%.2fs)\n", cl.mac, manager->nbAttempt, time_spent);
+                    log_info("%s: the machine does not appear to have started after %d attempts, monitoring resumes. (%.2fs)\n", clientHeader, manager->nbAttempt, time_spent);
                 }else
                 {
-                    log_info("Client [%s]: the machine does not appear to have started after %d attempts. (%.2fs)\n", cl.mac, manager->nbAttempt, time_spent);
+                    log_info("%s: the machine does not appear to have started after %d attempts. (%.2fs)\n", clientHeader, manager->nbAttempt, time_spent);
                     monitoring = 0;
                 }
             }
