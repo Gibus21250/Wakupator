@@ -44,7 +44,6 @@ int modify_ip_on_interface(const char* ifName, const char* ip_str, const ip_oper
 
     nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct ifaddrmsg));
 
-    // Adapter le type et les flags selon l'opération
     if (operation == IP_OP_ADD) {
         nlh->nlmsg_type = RTM_NEWADDR;
         nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK;

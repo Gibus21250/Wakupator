@@ -152,8 +152,9 @@ void *main_client_monitoring(void* args)
         //We can't do a clean wake-up, because the system waits for the thread to stop quickly.
         if(fds[nbSockCreated-1].revents == POLLIN)
         {
+            log_info("Client [%s]: Notification receive from main thread.\n", cl.mac);
             log_info("Client [%s]: Wake-On-Lan sent.\n", cl.mac);
-            wake_up(manager->mainRawSocket, manager->ifIndex,cl.mac);
+            wake_up(manager->mainRawSocket, manager->ifIndex, cl.mac);
             monitoring = 0;
         }
         //If the traffic is an ARP/NS

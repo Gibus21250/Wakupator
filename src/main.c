@@ -17,6 +17,14 @@
 #define BUFFER_SIZE 4096
 int server_fd = -1;
 
+void handle_signal() {
+    log_info("System signal caught.\n");
+    if (server_fd != -1) {
+        close(server_fd);
+        server_fd = -1;
+    }
+}
+
 const char* help_message =
         "Usage: wakupator -H|--host <ip_address> [OPTIONS]\n\n"
         "Options:\n"
@@ -31,49 +39,41 @@ const char* help_message =
         "  wakupator -H 192.168.0.37 -p 1234 -if eth2 -nb 5 -t 15 -kc 1\n"
         "  wakupator --host 2001:0db8:3c4d:c202:1::2222 --port 4321 --interface-name enp4s0 --number-attempt 6 --time-between-attempt 10 --keep-client 0\n";
 
-void handle_signal() {
-    log_info("System signal caught.\n");
-    if (server_fd != -1) {
-        close(server_fd);
-        server_fd = -1;
-    }
-}
+typedef struct main_context {
+    const char* ip;
+    const char* ifName;
+    uint16_t port;
+    uint16_t keepClient;
+    uint32_t nbAttempt;
+    uint32_t timeBtwAttempt;
+} main_context;
 
-int wakupator_main(const int argc, char **argv)
+int parse_arguments(const int argc, char **argv, main_context *context)
 {
-    int port = 13717;
-    const char* ip = NULL;
-    const char* ifName = "eth0";
-    uint32_t nbAttempt = 3;
-    uint32_t timeBtwAttempt = 30;
-    char keepClient = 1;
-
-    //------- PARSE ARGS -------
-
     for (int i = 1; i < argc-1; i +=2)
     {
         if(strcmp(argv[i], "-H") == 0 || strcmp(argv[i], "--host") == 0)
         {
-            ip = argv[i+1];
+            context->ip = argv[i+1];
         }
         else if(strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--port") == 0)
         {
             char *endPtr;
-            port = (int) strtol(argv[i+1], &endPtr, 10);
+            context->port = (int) strtol(argv[i+1], &endPtr, 10);
 
-            if (*endPtr != '\0' || port <= 0 || port > 65535) {
+            if (*endPtr != '\0' || context->port <= 0 || context->port > 65535) {
                 log_error("Error: invalid port '%s'.\n", argv[i+1]);
                 return EXIT_FAILURE;
             }
         }
         else if(strcmp(argv[i], "-if") == 0 || strcmp(argv[i], "--interface-name") == 0)
         {
-            ifName = argv[i+1];
+            context->ifName = argv[i+1];
         }
         else if(strcmp(argv[i], "-nb") == 0 || strcmp(argv[i], "--number-attempt") == 0)
         {
             char *endPtr;
-            nbAttempt = (uint32_t) strtol(argv[i+1], &endPtr, 10);
+            context->nbAttempt = (uint32_t) strtol(argv[i+1], &endPtr, 10);
 
             if (*endPtr != '\0') {
                 log_error("Error: invalid number attempt value '%s'.\n", argv[i+1]);
@@ -83,7 +83,7 @@ int wakupator_main(const int argc, char **argv)
         else if(strcmp(argv[i], "-t") == 0 || strcmp(argv[i], "--time-between-attempt") == 0)
         {
             char *endPtr;
-            timeBtwAttempt = (uint32_t) strtol(argv[i+1], &endPtr, 10);
+            context->timeBtwAttempt = (uint32_t) strtol(argv[i+1], &endPtr, 10);
 
             if (*endPtr != '\0') {
                 log_error("Error: invalid time between attempt value '%s'.\n", argv[i+1]);
@@ -92,7 +92,7 @@ int wakupator_main(const int argc, char **argv)
         }
         else if(strcmp(argv[i], "-kc") == 0 || strcmp(argv[i], "--keep-client") == 0)
         {
-            keepClient = argv[i+1][0] == '0'?0:1;
+            context->keepClient = argv[i+1][0] == '0'?0:1;
         }
         else if(strcmp(argv[i], "--help") == 0)
         {
@@ -105,7 +105,24 @@ int wakupator_main(const int argc, char **argv)
         }
     }
 
-    if(ip == NULL)
+    return 0;
+}
+
+int wakupator_main(const int argc, char **argv)
+{
+
+    main_context context;
+
+    context.ip = NULL;
+    context.ifName = "eth0";
+    context.port = 13717;
+    context.nbAttempt = 3;
+    context.timeBtwAttempt = 30;
+    context.keepClient = 1;
+
+    parse_arguments(argc, argv, &context);
+
+    if(context.ip == NULL)
     {
         log_info("You need to bind Wakupator to an IP with the option -H <IPv4/v6> or --host <IPv4/v6>\n");
         return 0;
@@ -124,7 +141,7 @@ int wakupator_main(const int argc, char **argv)
     struct sockaddr_storage serverAddress;
     int addrLen;
 
-    server_fd = init_ip_socket(ip, port, SOCK_STREAM, IPPROTO_TCP, &serverAddress, &addrLen);
+    server_fd = init_ip_socket(context.ip, context.port, SOCK_STREAM, IPPROTO_TCP, &serverAddress, &addrLen);
 
     if(server_fd == -1)
     {
@@ -145,7 +162,7 @@ int wakupator_main(const int argc, char **argv)
     }
 
     manager manager;
-    WAKUPATOR_CODE code = init_manager(&manager, ifName);
+    WAKUPATOR_CODE code = init_manager(&manager, context.ifName);
 
     if(code != OK)
     {
@@ -154,10 +171,9 @@ int wakupator_main(const int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    //Set parsed arguments to the manager
-    manager.keepClient = (unsigned char) keepClient;
-    manager.nbAttempt = nbAttempt;
-    manager.timeBtwAttempt = timeBtwAttempt;
+    manager.keepClient = (unsigned char) context.keepClient;
+    manager.nbAttempt = context.nbAttempt;
+    manager.timeBtwAttempt = context.timeBtwAttempt;
 
     log_info("Ready to register clients!\n");
 
