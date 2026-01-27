@@ -43,7 +43,7 @@ void log_error(const char *format, ...) {
     va_start(args, format);
 
 #ifdef DEBUG_MODE
-    print_timestamp(stdout);
+    print_timestamp(stderr);
 #endif
 
     fprintf(stderr, "[ERROR] ");
@@ -58,7 +58,7 @@ void log_fatal(const char *format, ...) {
     va_start(args, format);
 
 #ifdef DEBUG_MODE
-    print_timestamp(stdout);
+    print_timestamp(stderr);
 #endif
 
     fprintf(stderr, "[FATAL] ");
