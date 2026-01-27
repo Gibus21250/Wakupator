@@ -24,7 +24,7 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
     client->name[0] = 0;
     client->ipPortInfo = NULL;
     client->countIp = 0;
-    client->shutdownTime = 0;
+    client->timeStarted = 0;
 
     const cJSON *mac = cJSON_GetObjectItemCaseSensitive(json, "mac");
 

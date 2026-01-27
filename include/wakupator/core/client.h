@@ -20,7 +20,7 @@ typedef struct client {
     char name[64];
     ip_port_info *ipPortInfo;
     uint32_t countIp;
-    uint32_t shutdownTime;
+    uint64_t timeStarted;           //Track time since spoofing have been started
 } client;
 
 void destroy_client(client *cl);

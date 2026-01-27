@@ -197,7 +197,7 @@ void *main_client_monitoring(void* args)
             break;
         }
 
-        //res != 0 mean got a reply to the ARP, so need to wait more time
+        //res != 0 mean got a reply to the ARP/NS, so need to wait more
     }while(nbAttempt <= nbMaxProbe);
 
     clock_gettime(CLOCK_MONOTONIC, &end);
