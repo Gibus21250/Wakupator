@@ -50,7 +50,46 @@ typedef struct main_context {
 } main_context;
 
 int parse_arguments(const int argc, char **argv, main_context *context)
+typedef enum ARGS_PARSING_CODE {
+    PARSING_OK = 0,
+    PARSING_HELP,
+    PARSING_ERROR
+} ARGS_PARSING_CODE;
+
+/**
+ * Reformate arguments if they are parsed between single quote. (Exemple when remote debugging, or shell script launch etc)
+ */
+void format_quoted_arguments(const int argc, char **argv)
 {
+
+    //if one argument is between single quote
+    if (argc < 2 || argv[1] == NULL || argv[1][0] != '\'') {
+        return;
+    }
+
+    for (int i = 1; i < argc; i++) {
+        if (argv[i] == NULL) continue;
+
+        const char *src = argv[i];
+        char *dst = argv[i];
+
+        while (*src) {
+            if (*src != '\'') {
+                *dst++ = *src;
+            }
+            src++;
+        }
+        *dst = '\0';
+    }
+}
+
+ARGS_PARSING_CODE parse_arguments(const int argc, char **argv, main_context *context)
+{
+
+    if(strcmp(argv[1], "--help") == 0) {
+        return PARSING_HELP;
+    }
+
     for (int i = 1; i < argc-1; i +=2)
     {
         if(strcmp(argv[i], "-H") == 0 || strcmp(argv[i], "--host") == 0)
@@ -62,9 +101,9 @@ int parse_arguments(const int argc, char **argv, main_context *context)
             char *endPtr;
             context->port = (int) strtol(argv[i+1], &endPtr, 10);
 
-            if (*endPtr != '\0' || context->port <= 0 || context->port > 65535) {
+            if (*endPtr != '\0' || context->port < 1 || context->port > 65535) {
                 log_error("Error: invalid port '%s'.\n", argv[i+1]);
-                return EXIT_FAILURE;
+                return PARSING_ERROR;
             }
         }
         else if(strcmp(argv[i], "-if") == 0 || strcmp(argv[i], "--interface-name") == 0)
@@ -78,7 +117,7 @@ int parse_arguments(const int argc, char **argv, main_context *context)
 
             if (*endPtr != '\0') {
                 log_error("Error: invalid number attempt value '%s'.\n", argv[i+1]);
-                return EXIT_FAILURE;
+                return PARSING_ERROR;
             }
         }
         else if(strcmp(argv[i], "-t") == 0 || strcmp(argv[i], "--time-between-attempt") == 0)
@@ -88,7 +127,7 @@ int parse_arguments(const int argc, char **argv, main_context *context)
 
             if (*endPtr != '\0') {
                 log_error("Error: invalid time between attempt value '%s'.\n", argv[i+1]);
-                return EXIT_FAILURE;
+                return PARSING_ERROR;
             }
         }
         else if(strcmp(argv[i], "-kc") == 0 || strcmp(argv[i], "--keep-client") == 0)
@@ -101,12 +140,11 @@ int parse_arguments(const int argc, char **argv, main_context *context)
             return 0;
         }else
         {
-            log_info("Option not recognised: %s", argv[i]);
-            return 0;
+            log_error("Option not recognised: %s\n", argv[i]);
         }
     }
 
-    return 0;
+    return PARSING_OK;
 }
 
 int wakupator_main(const int argc, char **argv)
@@ -120,16 +158,25 @@ int wakupator_main(const int argc, char **argv)
     context.nbAttempt = 3;
     context.timeBtwAttempt = 30;
     context.keepClient = 1;
+    format_quoted_arguments(argc, argv);
+    const int parseArgsRes = parse_arguments(argc, argv, &context);
 
-    parse_arguments(argc, argv, &context);
+    if (parseArgsRes == PARSING_ERROR)
+        return EXIT_FAILURE;
+
+    if (parseArgsRes == PARSING_HELP) {
+        printf(help_message);
+        return EXIT_SUCCESS;
+    }
+
 
     if(context.ip == NULL)
     {
-        log_info("You need to bind Wakupator to an IP with the option -H <IPv4/v6> or --host <IPv4/v6>\n");
+        log_fatal("You need to bind Wakupator to an IP with the option -H <IPv4/v6> or --host <IPv4/v6>\n");
         return 0;
     }
-
     //------- PARSING OK -------
+
     if (signal(SIGINT, handle_signal) == SIG_ERR) {
         log_fatal("Error while setup signal handler.\n");
         return EXIT_FAILURE;
@@ -146,7 +193,7 @@ int wakupator_main(const int argc, char **argv)
 
     if(server_fd == -1)
     {
-        log_fatal("Main server socket creation failed: %s\n", strerror(errno));
+        log_fatal("Main server socket creation failed. IP Format invalid: '%s'.\n", context.ip);
         return EXIT_FAILURE;
     }
 
