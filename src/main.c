@@ -4,6 +4,7 @@
 #include <string.h>
 #include <signal.h>
 #include <errno.h>
+#include <stdio.h>
 
 #include "wakupator/core/client.h"
 #include "wakupator/core/core.h"
@@ -26,19 +27,37 @@ void handle_signal() {
     }
 }
 
-const char* help_message =
-        "Usage: wakupator -H|--host <ip_address> [OPTIONS]\n\n"
+const char help_message[] =
+        "Usage: wakupator <-H|--host> <ip_address> [OPTIONS]\n"
+        "\n"
         "Options:\n"
-        "  -H,  --host <ip_address>           (Required) Set the host IP address. (IPv4 or IPv6)\n"
-        "  -p,  --port <port_number>          Set the port number (0-65535, DEFAULT: 13717)\n"
-        "  -if, --interface-name <name>       Specify the network interface name. (DEFAULT: eth0)\n"
-        "  -nb, --number-attempt <number>     Set the number of Wake-On-LAN attempts. (DEFAULT: 3)\n"
-        "  -t,  --time-between-attempt <s>    Set the time in seconds between attempts. (DEFAULT: 30)\n"
-        "  -kc, --keep-client <0|1>           Keep the client monitored if he doesn't start after <-nb> attempt(s). (0: No, 1: Yes, DEFAULT: 1)\n"
-        "       --help                        Display this help message.\n\n"
+        "  REQUIRED:\n"
+        "\t-H,  --host <ip_address>           Set the host IP address. (IPv4 or IPv6)\n"
+        "\n"
+        "  General parameters:\n"
+        "\t-p,  --port <port_number>          Define the port number. ([1-65535], DEFAULT: 13717)\n"
+        "\t-if, --interface-name <name>       Specify the network interface name used for spoofing and probing. (DEFAULT: eth0)\n"
+        "\n"
+        "  Shutdown control parameters:\n"
+        "\t-st, --shutdown-timeout <s>        Maximum time (seconds) to wait for a clean shutdown before considering failure. (DEFAULT: 600, -1: inf)\n"
+        "\t-pd, --probe-delay <s>             Define the delay (seconds) between ARP (IPv4) and NS (IPv6) probes. (DEFAULT: 4)\n"
+        "\n"
+        "  Wake-up control parameters:\n"
+        "\t-nb, --number-attempts <number>    Define the number of Wake-On-LAN attempts. (DEFAULT: 3)\n"
+        "\t-t,  --time-between-attempt <s>    Define the time (seconds) between Wake-On-LAN attempts. (DEFAULT: 30)\n"
+        "\t-kc, --keep-client <0|1>           Keep the client monitored if it doesn't start after <-nb> attempt(s). (0: False, 1: True, DEFAULT: 1)\n"
+        "\t--help                             Display this help message.\n"
+        "\n"
         "Examples:\n"
-        "  wakupator -H 192.168.0.37 -p 1234 -if eth2 -nb 5 -t 15 -kc 1\n"
-        "  wakupator --host 2001:0db8:3c4d:c202:1::2222 --port 4321 --interface-name enp4s0 --number-attempt 6 --time-between-attempt 10 --keep-client 0\n";
+        "\twakupator -H 192.168.0.37 -p 12345 -if eth2 -nb 5 -t 15 -kc 1\n"
+        "\twakupator --host 2001:0db8:3c4d:c202:1::2222 --port 54321 --interface-name enp4s0 --number-attempt 6 --time-between-attempt 10 --keep-client 0\n"
+        "\n"
+        "Notes:\n"
+        "\t- Required CAP_NET_RAW (raw sockets)\n"
+        "\t- Required CAP_NET_ADMIN (IP address management)\n"
+        "  Command:\n"
+        "\t    sudo setcap cap_net_raw,cap_net_admin+eip /path/to/wakupator\n";
+
 
 typedef struct main_context {
     const char* ip;
@@ -47,9 +66,10 @@ typedef struct main_context {
     uint16_t keepClient;
     uint32_t nbAttempt;
     uint32_t timeBtwAttempt;
+    uint16_t shutdownTimeout;
+    uint16_t probeInterval;
 } main_context;
 
-int parse_arguments(const int argc, char **argv, main_context *context)
 typedef enum ARGS_PARSING_CODE {
     PARSING_OK = 0,
     PARSING_HELP,
@@ -134,10 +154,25 @@ ARGS_PARSING_CODE parse_arguments(const int argc, char **argv, main_context *con
         {
             context->keepClient = argv[i+1][0] == '0'?0:1;
         }
-        else if(strcmp(argv[i], "--help") == 0)
+        else if(strcmp(argv[i], "-st") == 0 || strcmp(argv[i], "--shutdown-timeout") == 0)
         {
-            log_info(help_message);
-            return 0;
+            char *endPtr;
+            context->shutdownTimeout = (uint32_t) strtol(argv[i+1], &endPtr, 10);
+
+            if (*endPtr != '\0') {
+                log_error("Error: invalid shutdown timeout value '%s'.\n", argv[i+1]);
+                return PARSING_ERROR;
+            }
+        }
+        else if(strcmp(argv[i], "-pd") == 0 || strcmp(argv[i], "--probe-delay") == 0)
+        {
+            char *endPtr;
+            context->probeInterval = (uint32_t) strtol(argv[i+1], &endPtr, 10);
+
+            if (*endPtr != '\0') {
+                log_error("Error: invalid probe interval value '%s'.\n", argv[i+1]);
+                return PARSING_ERROR;
+            }
         }else
         {
             log_error("Option not recognised: %s\n", argv[i]);
@@ -158,6 +193,9 @@ int wakupator_main(const int argc, char **argv)
     context.nbAttempt = 3;
     context.timeBtwAttempt = 30;
     context.keepClient = 1;
+    context.shutdownTimeout = 600;
+    context.probeInterval = 4;
+
     format_quoted_arguments(argc, argv);
     const int parseArgsRes = parse_arguments(argc, argv, &context);
 
@@ -222,6 +260,8 @@ int wakupator_main(const int argc, char **argv)
     manager.keepClient = (unsigned char) context.keepClient;
     manager.nbAttempt = context.nbAttempt;
     manager.timeBtwAttempt = context.timeBtwAttempt;
+    manager.shutdownTimeout = context.shutdownTimeout;
+    manager.probeInterval = context.probeInterval;
 
     log_info("Ready to register clients!\n");
 
@@ -259,7 +299,7 @@ int wakupator_main(const int argc, char **argv)
         if(code != OK) {
             message = get_wakupator_message_code(code);
             write(client_fd, message, strlen(message)+1);
-            log_debug("Error in the JSON of the client: %s\n", message);
+            log_info("Error in the JSON of the client: %s\n", message);
             close(client_fd);
             continue;
         }
@@ -279,7 +319,7 @@ int wakupator_main(const int argc, char **argv)
         close(client_fd); //close fd => close tcp
 
         if(code != OK) {
-            log_debug("Failed to register the client: %s\n", message);
+            log_info("Failed to register the client: %s\n", message);
             destroy_client(&cl);
             continue;
         }
@@ -290,9 +330,9 @@ int wakupator_main(const int argc, char **argv)
         free(info);
 
         //Notify the monitor thread to spoof IPs and start monitoring
-        start_monitoring(&manager, cl.mac);
+        start_monitoring(&manager, cl.macStr);
 
-    }
+    }//Main loop
 
     if(server_fd != -1)
         close(server_fd);

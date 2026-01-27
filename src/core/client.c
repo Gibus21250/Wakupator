@@ -26,7 +26,7 @@ char *get_client_str_info(const client *cl)
     //Count allocation size needed
     size_t size = 0;
 
-    size += snprintf(NULL, 0, "%s (%s)\n", cl->name, cl->mac);
+    size += snprintf(NULL, 0, "%s (%s)\n", cl->name, cl->macStr);
     size += snprintf(NULL, 0, "\tMonitored IP/port(s):\n");
 
     for (int i = 0; i < cl->countIp; ++i) {
@@ -49,7 +49,7 @@ char *get_client_str_info(const client *cl)
         return NULL;
     }
 
-    size_t offset = snprintf(buffer, size + 1, "%s (%s)\n", cl->name, cl->mac);
+    size_t offset = snprintf(buffer, size + 1, "%s (%s)\n", cl->name, cl->macStr);
     offset += snprintf(buffer + offset, size + 1, "\tMonitored IP/port(s):\n");
 
     for (int i = 0; i < cl->countIp; ++i) {

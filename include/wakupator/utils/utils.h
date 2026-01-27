@@ -15,6 +15,7 @@
  */
 int init_ip_socket(const char *ip, int port, int sockType, int protocol, struct sockaddr_storage* storeAddrInfo, int* sockaddr_size);
 void print_packet_details_ipv6(const struct ethhdr *eth, const struct ip6_hdr *ip6, const struct tcphdr *tcp);
-const char* print_ip_packet_info(const unsigned char *buffer, ssize_t packet_size);
+const char* print_ip_packet_info(const unsigned char *packetBuffer, ssize_t packetSize);
+void format_duration_hms(uint64_t seconds, char *buf, size_t bufSize);
 
 #endif //WAKUPATOR_UTILS_H

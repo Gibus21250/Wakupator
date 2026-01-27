@@ -10,6 +10,8 @@
 
 #include "wakupator/parser/parser.h"
 
+#include "wakupator/utils/net.h"
+
 WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
 {
     cJSON *json = cJSON_Parse(json_raw);
@@ -17,7 +19,8 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
         return PARSING_CJSON_ERROR;
 
     //Init the client struct
-    client->mac[0] = 0;
+    client->macStr[0] = 0;
+    client->macRaw[0] = 0;
     client->name[0] = 0;
     client->ipPortInfo = NULL;
     client->countIp = 0;
@@ -32,18 +35,13 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
         return PARSING_INVALID_MAC_ADDRESS;
     }
 
-    memcpy(client->mac, mac->valuestring, sizeof(client->mac));
+    memcpy(client->macStr, mac->valuestring, sizeof(client->macStr));
 
-    //Check if shutdown_time provided:
-    const cJSON *shutdownTime = cJSON_GetObjectItemCaseSensitive(json, "shutdown_time");
-
-    if (!cJSON_IsNull(shutdownTime) && !cJSON_IsNumber(shutdownTime))
+    if (parse_mac(client->macStr, client->macRaw))
     {
         cJSON_Delete(json);
-        return PARSING_INVALID_SHUTDOWN_TIME_FORMAT;
+        return PARSING_INVALID_MAC_ADDRESS;
     }
-
-    client->shutdownTime = shutdownTime->valueint;
 
     const cJSON *name = cJSON_GetObjectItemCaseSensitive(json, "name");
 

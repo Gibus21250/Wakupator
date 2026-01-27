@@ -27,7 +27,7 @@ int init_ip_socket(const char *ip, const int port, const int sockType, const int
         return -1;
     }
 
-    // To avoid bind: Address already in use (when restarted too fast)
+    // To avoid bind: Address already in use
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     if (AF == AF_INET6) {
@@ -64,7 +64,12 @@ int init_ip_socket(const char *ip, const int port, const int sockType, const int
     return sock;
 }
 
-const char* print_ip_packet_info(const unsigned char *buffer, ssize_t packet_size)
+/**
+ * Write L3 packet header information into a ASCII format
+ * @return Heap allocated buffer
+ */
+__attribute__((warn_unused_result))
+const char* print_ip_packet_info(const unsigned char *packetBuffer, ssize_t packetSize)
 {
 
     const size_t MSG_SIZE = 512;
@@ -73,26 +78,27 @@ const char* print_ip_packet_info(const unsigned char *buffer, ssize_t packet_siz
     if (!message)
         return NULL;
 
-    if (packet_size < sizeof(struct ethhdr)) {
-        sprintf(message, "Packet is too small. (%ld bytes)", packet_size);
+    if (packetSize < sizeof(struct ethhdr)) {
+        sprintf(message, "Packet is too small. (%ld bytes)", packetSize);
         return message;
     }
 
-    char src_ip_str[INET6_ADDRSTRLEN+2];
-    char dst_ip_str[INET6_ADDRSTRLEN+2];
+    char src_ip_str[INET6_ADDRSTRLEN+2] = {0};
+    char dst_ip_str[INET6_ADDRSTRLEN+2] = {0};
+
     uint16_t dst_port = 0;
     uint16_t src_port = 0;
 
-    struct ethhdr *eth = (struct ethhdr *)buffer;
-    uint16_t ether_type = ntohs(eth->h_proto);
+    const struct ethhdr *eth = (struct ethhdr *)packetBuffer;
+    const uint16_t ether_type = ntohs(eth->h_proto);
 
     if (ether_type == ETH_P_IP)
     {
-        struct iphdr *ip4 = (struct iphdr *)(buffer + sizeof(struct ethhdr));
+        const struct iphdr *ip4 = (struct iphdr *)(packetBuffer + sizeof(struct ethhdr));
 
         if (ip4->protocol == IPPROTO_TCP)
         {
-            struct tcphdr *tcp = (struct tcphdr *)(buffer + sizeof(struct ethhdr) + (ip4->ihl * 4));
+            const struct tcphdr *tcp = (struct tcphdr *)(packetBuffer + sizeof(struct ethhdr) + (ip4->ihl * 4));
             dst_port = ntohs(tcp->dest);
             src_port = ntohs(tcp->source);
 
@@ -103,20 +109,20 @@ const char* print_ip_packet_info(const unsigned char *buffer, ssize_t packet_siz
     }
     else if (ether_type == ETH_P_IPV6)
     {
-        struct ip6_hdr *ip6 = (struct ip6_hdr *)(buffer + sizeof(struct ethhdr));
+        const struct ip6_hdr *ip6 = (struct ip6_hdr *)(packetBuffer + sizeof(struct ethhdr));
 
         if (ip6->ip6_nxt == IPPROTO_TCP)
         {
-            struct tcphdr *tcp = (struct tcphdr *)(buffer + sizeof(struct ethhdr) + sizeof(struct ip6_hdr));
+            struct tcphdr *tcp = (struct tcphdr *)(packetBuffer + sizeof(struct ethhdr) + sizeof(struct ip6_hdr));
             dst_port = ntohs(tcp->dest);
             src_port = ntohs(tcp->source);
 
             char tmp_ip[INET6_ADDRSTRLEN];
             inet_ntop(AF_INET6, &ip6->ip6_src, tmp_ip, INET6_ADDRSTRLEN);
-            snprintf(src_ip_str, INET6_ADDRSTRLEN, "[%s]", tmp_ip);
+            snprintf(src_ip_str, INET6_ADDRSTRLEN + 2, "[%s]", tmp_ip);
 
             inet_ntop(AF_INET6, &ip6->ip6_dst, tmp_ip, INET6_ADDRSTRLEN);
-            snprintf(dst_ip_str, INET6_ADDRSTRLEN, "[%s]", tmp_ip);
+            snprintf(dst_ip_str, INET6_ADDRSTRLEN + 2, "[%s]", tmp_ip);
 
         }
     }
@@ -178,4 +184,32 @@ void print_packet_details_ipv6(const struct ethhdr *eth, const struct ip6_hdr *i
     printf("Window Size: %d\n", ntohs(tcp->window));
     printf("Checksum: 0x%04x\n", ntohs(tcp->check));
     printf("Urgent Pointer: %d\n", ntohs(tcp->urg_ptr));
+}
+
+void format_duration_hms(uint64_t seconds, char *buf, const size_t bufSize)
+{
+
+    const unsigned long weeks = seconds / 604800;
+    seconds %= 604800;
+    const unsigned long days  = seconds / 86400;
+    seconds %= 86400;
+    const unsigned long hours = seconds / 3600;
+    seconds %= 3600;
+    const unsigned long mins  = seconds / 60;
+    const unsigned long secs  = seconds % 60;
+
+    if (weeks)
+        snprintf(buf, bufSize, "%luw %lud %luh %lum %lus",
+                 weeks, days, hours, mins, secs);
+    else if (days)
+        snprintf(buf, bufSize, "%lud %luh %lum %lus",
+                 days, hours, mins, secs);
+    else if (hours)
+        snprintf(buf, bufSize, "%luh %lum %lus",
+                 hours, mins, secs);
+    else if (mins)
+        snprintf(buf, bufSize, "%lum %lus",
+                 mins, secs);
+    else
+        snprintf(buf, bufSize, "%lus", secs);
 }

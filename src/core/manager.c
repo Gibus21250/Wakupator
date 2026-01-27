@@ -1,93 +1,129 @@
 #include "wakupator/core/manager.h"
 
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <arpa/inet.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 
 #include "wakupator/core/monitor.h"
 #include "wakupator/log/log.h"
+#include "wakupator/utils/net.h"
 
 #define BUFFER_GROW_STEP 4
 
-WAKUPATOR_CODE init_manager(manager *mng_client, const char* ifName)
+WAKUPATOR_CODE init_manager(manager *manager, const char* ifName)
 {
 
-    //Create main raw socket (for sending WoL packets)
-    mng_client->mainRawSocket = socket(PF_PACKET, SOCK_RAW, 0);
+    log_debug("Initializing manager.\n");
 
-    if(mng_client->mainRawSocket == -1)
+    //Create main raw socket (for sending WoL packets)
+    manager->mainRawSocket = socket(PF_PACKET, SOCK_RAW, 0);
+
+    if(manager->mainRawSocket == -1)
     {
         return INIT_RAW_SOCKET_CREATION_ERROR;
     }
 
     struct ifreq ifr = {0};
 
+    //Gather if index from the interface name
     strncpy(ifr.ifr_name, ifName, IFNAMSIZ-1);
-    if (ioctl(mng_client->mainRawSocket, SIOCGIFINDEX, &ifr) < 0)
+    if (ioctl(manager->mainRawSocket, SIOCGIFINDEX, &ifr) < 0)
     {
-        close(mng_client->mainRawSocket);
-        return INIT_INTERFACE_GATHER_ERROR;
+        close(manager->mainRawSocket);
+        return INIT_INTERFACE_GATHER_IF_INDEX_ERROR;
     }
 
-    mng_client->ifIndex = ifr.ifr_ifindex;
-    mng_client->ifName = ifName;
+    manager->ifIndex = ifr.ifr_ifindex;
+    manager->ifName = ifName;
+
+    //Gather if mac address from the interface name
+    memset(&ifr, 0, sizeof(ifr));
+
+    strncpy(ifr.ifr_name, ifName, IFNAMSIZ-1);
+    if (ioctl(manager->mainRawSocket, SIOCGIFHWADDR, &ifr) < 0)
+    {
+        close(manager->mainRawSocket);
+        return INIT_INTERFACE_GATHER_IF_MAC_ERROR;
+    }
+
+    memcpy((void*) manager->ifMacRaw, ifr.ifr_hwaddr.sa_data, 6);
+
+    //Gather IPv6 Link Local IP if available
+    if (get_ipv6_link_local(ifName, &manager->ifIPv6LinkLocal) != 0)
+    {
+        log_info("No IPv6 link-local address on %s, IPv6 fonctionalities disabled\n", ifName);
+        manager->hasIPv6 = 0;
+    }
+    else
+    {
+        manager->hasIPv6 = 1;
+        char ipv6_str[INET6_ADDRSTRLEN];
+        inet_ntop(AF_INET6, &manager->ifIPv6LinkLocal, ipv6_str, sizeof(ipv6_str));
+        log_debug("IPv6 link-local found on %s: %s\n", ifName, ipv6_str);
+    }
 
     //Buffer data
-    mng_client->count = 0;
-    mng_client->bufferSize = BUFFER_GROW_STEP;
+    manager->count = 0;
+    manager->bufferSize = BUFFER_GROW_STEP;
 
-    mng_client->clientThreadInfos = (thread_monitor_info*) malloc(BUFFER_GROW_STEP * sizeof(thread_monitor_info));
-    if(mng_client->clientThreadInfos == NULL)
+    manager->clientThreadInfos = (thread_monitor_info*) malloc(BUFFER_GROW_STEP * sizeof(thread_monitor_info));
+    if(manager->clientThreadInfos == NULL)
     {
-        close(mng_client->mainRawSocket);
+        close(manager->mainRawSocket);
         return OUT_OF_MEMORY;
     }
 
-    //Create struct mutex
-    if(pthread_mutex_init(&mng_client->mainLock, NULL) != 0)
+    //Init mutex
+    if(pthread_mutex_init(&manager->mainLock, NULL) != 0)
     {
-        free(mng_client->clientThreadInfos);
-        close(mng_client->mainRawSocket);
+        free(manager->clientThreadInfos);
+        close(manager->mainRawSocket);
         return INIT_MUTEX_CREATION_ERROR;
     }
 
-    if(pthread_mutex_init(&mng_client->registeringMutex, NULL) != 0)
+    if(pthread_mutex_init(&manager->registeringMutex, NULL) != 0)
     {
-        free(mng_client->clientThreadInfos);
-        close(mng_client->mainRawSocket);
-        pthread_mutex_destroy(&mng_client->mainLock);
+        free(manager->clientThreadInfos);
+        close(manager->mainRawSocket);
+        pthread_mutex_destroy(&manager->mainLock);
         return INIT_MUTEX_CREATION_ERROR;
     }
 
-    if(pthread_cond_init(&mng_client->registeringCond, NULL) != 0)
+    if(pthread_cond_init(&manager->registeringCond, NULL) != 0)
     {
-        free(mng_client->clientThreadInfos);
-        close(mng_client->mainRawSocket);
-        pthread_mutex_destroy(&mng_client->mainLock);
-        pthread_mutex_destroy(&mng_client->registeringMutex);
+        free(manager->clientThreadInfos);
+        close(manager->mainRawSocket);
+        pthread_mutex_destroy(&manager->mainLock);
+        pthread_mutex_destroy(&manager->registeringMutex);
         return INIT_MUTEX_CREATION_ERROR;
     }
 
     //Create pipe for notification
-    if(pipe(mng_client->notify) != 0)
+    if(pipe(manager->notify) != 0)
     {
-        free(mng_client->clientThreadInfos);
-        close(mng_client->mainRawSocket);
-        pthread_mutex_destroy(&mng_client->mainLock);
-        pthread_mutex_destroy(&mng_client->registeringMutex);
-        pthread_cond_destroy(&mng_client->registeringCond);
+        free(manager->clientThreadInfos);
+        close(manager->mainRawSocket);
+        pthread_mutex_destroy(&manager->mainLock);
+        pthread_mutex_destroy(&manager->registeringMutex);
+        pthread_cond_destroy(&manager->registeringCond);
         return INIT_PIPE_CREATION_ERROR;
     }
+
+    log_debug("Manager successfully initialized.\n");
 
     return OK;
 }
 
 void destroy_manager(manager *mng_client)
 {
+
+    log_debug("Destroying manager\n");
 
     pthread_mutex_lock(&mng_client->mainLock);
     if(mng_client->count != 0)
@@ -119,6 +155,8 @@ void destroy_manager(manager *mng_client)
     close(mng_client->notify[1]);
     close(mng_client->mainRawSocket);
 
+    log_debug("Manager successfully destroyed\n");
+
 }
 
 /**
@@ -130,9 +168,23 @@ WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
     //Lock the manager struct
     pthread_mutex_lock(&mng_client->mainLock);
 
+    if (mng_client->hasIPv6 == 0)
+    {
+        //Verify that all requested IP addresses do not contain any IPv6 addresses
+        for(int i = 0; i < newClient->countIp; ++i)
+        {
+            if (newClient->ipPortInfo[i].ipFormat == AF_INET6)
+            {
+                pthread_mutex_unlock(&mng_client->mainLock);
+                return MANAGER_IP6_NOT_AVAILABLE;
+            }
+        }
+    }
+
+
     //Verify that the client's mac address isn't already monitored
     for (int i = 0; i < mng_client->count; ++i) {
-        if(strcasecmp(newClient->mac, mng_client->clientThreadInfos[i].cl.mac) == 0)
+        if(strcasecmp(newClient->macStr, mng_client->clientThreadInfos[i].cl.macStr) == 0)
         {
             pthread_mutex_unlock(&mng_client->mainLock);
             return MANAGER_MAC_ADDRESS_ALREADY_MONITORED;
@@ -221,7 +273,7 @@ int unregister_client(manager *mng_client, const char* strMac)
 
     for (int i = 0; i < mng_client->count; ++i) {
         //if we found the client
-        if(strcasecmp(strMac, mng_client->clientThreadInfos[i].cl.mac) == 0)
+        if(strcasecmp(strMac, mng_client->clientThreadInfos[i].cl.macStr) == 0)
         {
 
             destroy_client(&mng_client->clientThreadInfos[i].cl);
@@ -245,7 +297,7 @@ void start_monitoring(manager *mng_client, const char* macClient)
 
     for (int i = 0; i < mng_client->count; ++i) {
 
-        if(strcasecmp(macClient, mng_client->clientThreadInfos[i].cl.mac) == 0)
+        if(strcasecmp(macClient, mng_client->clientThreadInfos[i].cl.macStr) == 0)
         {
             //Notify the thread to start!
             pthread_mutex_lock(&mng_client->registeringMutex);

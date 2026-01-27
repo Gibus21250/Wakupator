@@ -15,8 +15,9 @@ typedef struct ip_port_info {
 } ip_port_info;
 
 typedef struct client {
-    char mac[18]; //ASCII string format MAC address
-    char name[64-18];
+    char macStr[18]; //ASCII string format MAC address
+    unsigned char macRaw[6]; //Raw format MAC
+    char name[64];
     ip_port_info *ipPortInfo;
     uint32_t countIp;
     uint32_t shutdownTime;

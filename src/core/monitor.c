@@ -15,6 +15,10 @@
 #include <pthread.h>
 
 #include "wakupator/core/monitor.h"
+
+#include <stdlib.h>
+#include <threads.h>
+
 #include "wakupator/core/manager.h"
 
 #include "wakupator/utils/bpf.h"
@@ -28,7 +32,7 @@ void *main_client_monitoring(void* args)
 
     //Shallow copy
     const main_monitor_args mainClientArgs = *(main_monitor_args*) args;
-    manager *manager = mainClientArgs.managerMain;
+    manager *manager = mainClientArgs.manager;
 
     pthread_mutex_t *selfMutex = &manager->registeringMutex;
     pthread_cond_t *selfCond = &manager->registeringCond;
@@ -36,13 +40,13 @@ void *main_client_monitoring(void* args)
     //Shallow copy of the client
     client cl = *mainClientArgs.client;
 
-    char clientHeader[sizeof(cl.mac) + sizeof(cl.name) + 16];
-    sprintf(clientHeader, "Client %s (%s)", cl.name, cl.mac);
+    char clientHeader[sizeof(cl.macStr) + sizeof(cl.name) + 16];
+    snprintf(clientHeader, sizeof(clientHeader),"Client %s (%s)", cl.name, cl.macStr);
 
     log_debug("%s: init monitor thread.\n", clientHeader);
 
     //Verify that all IP asked are not already assigned on the host
-    const int code = verify_ips(&cl);
+    const int code = validate_client_ips(&cl);
 
     if(code != OK)
     {
@@ -52,6 +56,7 @@ void *main_client_monitoring(void* args)
         pthread_mutex_unlock(selfMutex);
         return NULL;
     }
+
     log_debug("%s: IP(s) provided can be spoofed.\n", clientHeader);
 
     //Array: count(IP with port(s) provided) + 2 (ARP/NS & Master Notify)
@@ -69,7 +74,8 @@ void *main_client_monitoring(void* args)
 
     uint32_t nbSockCreated = 0;
 
-    //Create all socket needed: on per group IP/ports (continue if no ports was provided)
+    //Create all socket needed: on per group IP/ports
+    //(continue if no ports was provided)
     for (uint32_t i = 0; i < cl.countIp; ++i) {
         const ip_port_info *info = &cl.ipPortInfo[i];
 
@@ -100,164 +106,264 @@ void *main_client_monitoring(void* args)
 
     log_debug("%s: %d raw sockets created. (%d IP without ports provided)\n", clientHeader, nbSockCreated, cl.countIp - nbSockCreated);
 
-    //Create a raw socket to detect if the client has been started manually
-    fds[nbSockCreated].fd = create_raw_socket_arp_ns(cl.mac);
+    //Create a raw socket to detect activity from the target interface.
+    //(ARP/NS and all others)
+    fds[nbSockCreated].fd = create_raw_socket_arp_ns(cl.macStr);
     fds[nbSockCreated].events = POLLIN;
     nbSockCreated++;
 
-    //Adding at the last the pipe for handling master's notification (close socket from a poll fd seems to not unlock the thread)
+    //Adding at the last the pipe for handling master's notification
+    //(close socket from a poll fd seems to not unlock the thread)
     fds[nbSockCreated].fd = manager->notify[0];
     fds[nbSockCreated].events = POLLIN;
     nbSockCreated++;
 
     log_debug("%s: ARP/NS and Master Notify created.\n", clientHeader);
 
-    //------------ Notify the master that everything is OK ------------
+    // --------------------------------- Notify the master that everything is OK -------------------------------------
     pthread_mutex_lock(selfMutex);
     *mainClientArgs.wakupator_code = OK;
     pthread_cond_signal(selfCond);
     pthread_mutex_unlock(selfMutex);
 
-    //------------ Waiting notify from master to start spoofing and monitoring ------------
+    // ---------------------------------- Waiting notify from master to continue -------------------------------------
 
     pthread_mutex_lock(selfMutex);
     pthread_cond_wait(selfCond, selfMutex);
     pthread_mutex_unlock(selfMutex);
 
-    if(cl.shutdownTime > 0)
-    {
-        log_info("%s: waiting %d seconds for complete shutdown before monitoring...\n",
-                 clientHeader, cl.shutdownTime);
-        sleep(cl.shutdownTime);
-        log_info("%s: shutdown delay elapsed.\n", clientHeader);
-    }
+
+    log_info("%s: Waiting for the machine to stop completely before proceeding with the monitoring...\n",
+                    clientHeader);
+
+    const ip_port_info clientTargetIP = cl.ipPortInfo[0];
+
+    log_info("%s: Using the IP %s as representative to check if the machine is off.\n",
+                    clientHeader, clientTargetIP.ipStr);
 
     char buffer[1024];
 
-    //----------- Spoofing IPs -----------
-    spoof_ips(manager, &cl);
+    const uint16_t nbMaxProbe = manager->shutdownTimeout / manager->probeInterval;
 
-    log_info("%s: start monitoring.\n", clientHeader);
-    char monitoring = 1;
+    struct timespec start, end;
+    char timeBuf[64];
 
-    while (monitoring)
+    int nbAttempt = 1;
+    int res = 0;
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    // ------------------------------------ Waiting the machine to turn off ------------------------------------------
+    do
     {
-        //----------- Clear the raw socket for ARP and NS detection -----------
+        sleep(manager->probeInterval);
+
+        //Clear the socket
         while (recv(fds[nbSockCreated-2].fd, buffer, sizeof(buffer), MSG_DONTWAIT) > 0) {}
 
-        poll(fds, nbSockCreated, -1); //Waiting traffic
-
-        //----------- traffic has been caught ------------
-
-        //remove all IP spoofed
-        remove_ips(manager, &cl);
-
-        //If the "traffic" is the master's notification, send only one WoL, and stop the thread.
-        //We can't do a clean wake-up, because the system waits for the thread to stop quickly.
-        if(fds[nbSockCreated-1].revents == POLLIN)
+        if (clientTargetIP.ipFormat == AF_INET)
         {
-            log_info("%s: Notification receive from main thread.\n", clientHeader);
-            log_info("%s: Wake-On-Lan sent.\n", clientHeader);
-            wake_up(manager->mainRawSocket, manager->ifIndex, cl.mac);
-            monitoring = 0;
+            if (send_arp(manager, clientTargetIP.ipStr))
+            {
+                log_fatal("%s: Error sending ARP packet, Wakupator could not verify the response.\n", clientHeader);
+                continue;
+            }
+
+            log_info("%s: ARP Request sent to %s. (#%d)\n", clientHeader, clientTargetIP.ipStr, nbAttempt);
         }
-        //If the traffic is an ARP/NS
-        else if(fds[nbSockCreated-2].revents == POLLIN)
-        {
-            log_info("%s: the machine has been started manually.\n", clientHeader);
-            monitoring = 0;
-        }
-        //Other "real" traffic monitored
         else
         {
-            log_info("%s: traffic detected.\n", clientHeader);
-
-            for (int i = 0; i < nbSockCreated; i++)
+            if (send_ns(manager, clientTargetIP.ipStr))
             {
-                if (fds[i].revents & POLLIN)
-                {
-                    unsigned char packet[65536];
-                    struct sockaddr_ll saddr;
-                    socklen_t saddrLen = sizeof(saddr);
-
-                    const ssize_t packet_size = recvfrom(fds[i].fd, packet, sizeof(packet), 0,
-                                                   (struct sockaddr *)&saddr, &saddrLen);
-
-                    if (packet_size > 0)
-                    {
-                        const char* packet_info = print_ip_packet_info(packet, packet_size);
-
-                        if (packet_info) {
-                            log_info("%s: Packet Info: %s.\n", clientHeader, packet_info);
-                            free((void*) packet_info);
-                        }
-
-                    }
-                }
+                log_fatal("%s: Error sending ICMPv6 NS Request, Wakupator could not verify the response.\n", clientHeader);
+                continue;
             }
 
-            int nbAttempt = 1;
-            int res = 0;
-
-            struct timespec start_time, end_time;
-            clock_gettime(CLOCK_MONOTONIC, &start_time);
-
-            do //Attempt a Wake On LAN, and wait the machine to start
-            {
-                //If we receive anything from the machine (arp, ns etc.), that means that the machine is up!
-                if(fds[nbSockCreated-2].revents == POLLIN)
-                    break;
-                log_info("%s: Wake-On-Lan sent. (attempt %d)\n", clientHeader, nbAttempt);
-                //Attempt a WoL
-                wake_up(manager->mainRawSocket, manager->ifIndex,cl.mac);
-                nbAttempt++;
-
-                //Waiting only for arp/ns socket activity
-                res = poll(&fds[nbSockCreated-2], 1, (int) manager->timeBtwAttempt * 1000);
-
-                //== 0 means no activity detected (= timeout), and no error
-            }while(res == 0 && nbAttempt <= manager->nbAttempt);
-
-            clock_gettime(CLOCK_MONOTONIC, &end_time);
-            const double time_spent = (double) (end_time.tv_sec - start_time.tv_sec) + (double) (end_time.tv_nsec - start_time.tv_nsec) / 1e9;
-
-            //The machine has been started successfully (res record one activity)
-            if(res != 0)
-            {
-                log_info("%s: the machine has been started successfully. (%.2fs)\n", clientHeader, time_spent);
-                monitoring = 0;
-            }
-            else
-            {
-                if(manager->keepClient == 1)
-                {
-                    spoof_ips(manager, &cl);
-                    log_info("%s: the machine does not appear to have started after %d attempts, monitoring resumes. (%.2fs)\n", clientHeader, manager->nbAttempt, time_spent);
-                }else
-                {
-                    log_info("%s: the machine does not appear to have started after %d attempts. (%.2fs)\n", clientHeader, manager->nbAttempt, time_spent);
-                    monitoring = 0;
-                }
-            }
-
+            log_info("%s: ICMPv6 NS Request sent to %s. (#%d)\n", clientHeader, clientTargetIP.ipStr, nbAttempt);
         }
 
-    }//Monitoring loop
+        nbAttempt++;
 
+        //Waiting for arp/ns socket activity
+        res = poll(&fds[nbSockCreated-2], 1, (int) manager->probeInterval * 1000);
+
+        if (res > 0) {
+            log_info("%s: Got a reply from the request. Retry in %ds.\n",
+                            clientHeader, manager->probeInterval);
+        }
+        else if (res == 0)
+            break;
+        else {
+            nbAttempt = -1;
+            break;
+        }
+
+        //res != 0 mean got a reply to the ARP, so need to wait more time
+    }while(nbAttempt <= nbMaxProbe);
+
+    clock_gettime(CLOCK_MONOTONIC, &end);
+
+    uint64_t timeElapsed = (uint64_t) (end.tv_sec - start.tv_sec);
+
+    // ----------------------------------------- Result from waiting -------------------------------------------------
+    //timeout
+    if (nbAttempt == nbMaxProbe)
+    {
+        log_error("%s: The machine still appears to be powered on, canceling the IP address spoofing and "
+                  "monitoring.", clientHeader);
+    }
+    else if (nbAttempt == -1) //Error while polling
+    {
+        log_fatal("%s: A fatal error occurred while polling the ARP/NS responses. IP spoofing and monitoring "
+            "has been cancelled.", clientHeader);
+    }
+    else //The machine is off!
+    {
+        format_duration_hms(timeElapsed, timeBuf, sizeof(timeBuf));
+        log_info("%s: The machine seems to be off in approximately %s.\n", clientHeader, timeBuf);
+        log_info("%s: Start spoofing and monitoring IP addresses.\n", clientHeader);
+
+        clock_gettime(CLOCK_MONOTONIC, &start);
+        cl.timeStarted = start.tv_sec;
+        // ----------- Spoofing IPs -----------
+        spoof_client_ips(manager, &cl);
+
+        char monitoring = 1;
+
+        while (monitoring)
+        {
+            //----------- Clear the raw socket for ARP and NS detection -----------
+            while (recv(fds[nbSockCreated-2].fd, buffer, sizeof(buffer), MSG_DONTWAIT) > 0) {}
+
+            poll(fds, nbSockCreated, -1); //Waiting traffic
+
+            //----------- traffic has been caught ------------
+
+            remove_client_ips(manager, &cl);
+
+            clock_gettime(CLOCK_MONOTONIC, &end);
+
+            timeElapsed = (uint64_t) (end.tv_sec - start.tv_sec);
+
+            //If the "traffic" is the master's notification, send only one WoL, and stop the thread.
+            //We can't do a clean wake-up, because the system waits for the thread to stop quickly.
+            if(fds[nbSockCreated-1].revents == POLLIN)
+            {
+                log_info("%s: Notification receive from main thread.\n", clientHeader);
+                log_info("%s: Wake-On-Lan sent.\n", clientHeader);
+                send_wake_on_lan(manager->mainRawSocket, manager->ifIndex, manager->ifMacRaw, cl.macRaw);
+                monitoring = 0;
+            }
+            //If the traffic is an ARP/NS
+            else if(fds[nbSockCreated-2].revents == POLLIN)
+            {
+                log_info("%s: the machine has been started manually.\n", clientHeader);
+                monitoring = 0;
+            }
+            //Other "real" traffic monitored
+            else
+            {
+                log_info("%s: traffic detected.\n", clientHeader);
+
+                //Print packet Info
+                for (int i = 0; i < nbSockCreated-2; i++)
+                {
+                    if (fds[i].revents & POLLIN)
+                    {
+                        unsigned char packet[65536];
+                        struct sockaddr_ll saddr;
+                        socklen_t saddrLen = sizeof(saddr);
+
+                        const ssize_t packet_size = recvfrom(fds[i].fd, packet, sizeof(packet), 0,
+                                                       (struct sockaddr *)&saddr, &saddrLen);
+
+                        if (packet_size > 0)
+                        {
+                            const char* packet_info = print_ip_packet_info(packet, packet_size);
+
+                            if (packet_info) {
+                                log_info("%s: Packet Info: %s.\n", clientHeader, packet_info);
+                                free((void*) packet_info);
+                            }
+
+                        }
+                    }
+                }
+
+                nbAttempt = 1;
+                res = 0;
+
+                clock_gettime(CLOCK_MONOTONIC, &start);
+
+                do //Attempt a Wake On LAN, and wait the machine to start
+                {
+                    //If we receive anything from the machine (arp, ns etc.), that means that the machine is up!
+                    if(fds[nbSockCreated-2].revents == POLLIN)
+                        break;
+
+                    //Attempt a WoL
+                    if (send_wake_on_lan(manager->mainRawSocket, manager->ifIndex, manager->ifMacRaw,cl.macRaw))
+                    {
+                        log_fatal("%s: Error sending the WoL packet, the machine could not start.\n", clientHeader);
+                        continue;
+                    }
+
+                    log_info("%s: Wake-On-Lan sent. (#%d)\n", clientHeader, nbAttempt);
+
+                    nbAttempt++;
+
+                    //Waiting only for arp/ns socket activity
+                    res = poll(&fds[nbSockCreated-2], 1, (int) manager->timeBtwAttempt * 1000);
+
+                    //== 0 means no activity detected (= timeout), and no error
+                }while(res == 0 && nbAttempt <= manager->nbAttempt);
+
+                clock_gettime(CLOCK_MONOTONIC, &end);
+                timeElapsed = (uint64_t) (end.tv_sec - start.tv_sec);
+                format_duration_hms(timeElapsed, timeBuf, sizeof(timeBuf));
+
+                //The machine has been started successfully (res record one activity)
+                if(res != 0)
+                {
+                    log_info("%s: the machine has been started successfully. (%s)\n", clientHeader, timeBuf);
+                    monitoring = 0;
+                }
+                else
+                {
+                    if(manager->keepClient == 1)
+                    {
+                        spoof_client_ips(manager, &cl);
+                        log_info("%s: the machine does not appear to have started after %d attempts, monitoring resumes. (%s)\n", clientHeader, manager->nbAttempt, timeBuf);
+                    }else
+                    {
+                        log_info("%s: the machine does not appear to have started after %d attempts. (%s)\n", clientHeader, manager->nbAttempt, timeBuf);
+                        monitoring = 0;
+                    }
+                }
+
+            }
+
+        }//Monitoring loop
+
+    }
+
+    // --------------------------------------- Cleaning all resources ------------------------------------------------
     //Close all sockets created (but not the Master Notify)
     for (int i = 0; i < nbSockCreated - 1; ++i) {
         close(fds[i].fd);
     }
 
-    if (unregister_client(manager, cl.mac)) {
-        log_info("%s: has been retired from monitoring.\n", clientHeader);
+    if (unregister_client(manager, cl.macStr)) {
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        timeElapsed = (uint64_t) end.tv_sec - cl.timeStarted;
+        format_duration_hms(timeElapsed, timeBuf, sizeof(timeBuf));
+        log_info("%s: Has been removed from monitoring. Total monitoring duration: %s\n", clientHeader, timeBuf);
     }
 
     free(fds);
     return NULL;
 }
 
-void spoof_ips(const manager *mng, const client *cl)
+void spoof_client_ips(const manager *mng, const client *cl)
 {
     //Assign IP of the client on the host
     for (int j = 0; j < cl->countIp; ++j) {
@@ -266,7 +372,7 @@ void spoof_ips(const manager *mng, const client *cl)
     }
 }
 
-void remove_ips(const manager *mng, const client *cl)
+void remove_client_ips(const manager *mng, const client *cl)
 {
     for (int i = 0; i < cl->countIp; ++i) {
         //TODO create a new virtual interface per client (to improve visibility)
@@ -274,12 +380,13 @@ void remove_ips(const manager *mng, const client *cl)
     }
 }
 
-int verify_ips(const client *cl)
+int validate_client_ips(const client *cl)
 {
-    for (int i = 0; i < cl->countIp; ++i) {
+    for (int i = 0; i < cl->countIp; ++i)
+    {
         ip_search_result_t result;
-
-        if (check_ip_exists(cl->ipPortInfo->ipStr, &result) == 1) {
+        if (check_ip_exists(cl->ipPortInfo->ipStr, &result) == 1)
+        {
             return MONITOR_IP_ALREADY_USED;
         }
     }
@@ -295,12 +402,10 @@ int create_raw_socket_arp_ns(const char macStr[18])
 
     uint8_t macRaw[6];
 
-    if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-               &macRaw[0], &macRaw[1], &macRaw[2],
-               &macRaw[3], &macRaw[4], &macRaw[5]) != 6) {
+    if (parse_mac(macStr, macRaw))
+    {
         log_error("Error while parsing the MAC address\n");
         close(rawSocket);
-        return -1;
     }
 
     struct sock_filter *bpf_code = calloc(10, sizeof(struct sock_filter));
@@ -425,36 +530,4 @@ struct sock_fprog create_bpf_filter(const ip_port_info *ipPortInfo)
     res.len = codeSize;
 
     return res;
-}
-
-void wake_up(const int rawSocket, const int ifIndex, const char *macStr)
-{
-    char frame[ETH_HLEN + 102] = {0};
-
-    unsigned char mac_bytes[6];
-    sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx",
-           &mac_bytes[0], &mac_bytes[1], &mac_bytes[2],
-           &mac_bytes[3], &mac_bytes[4], &mac_bytes[5]);
-
-    struct ethhdr *eth = (struct ethhdr *) frame;
-
-    memcpy(&eth->h_dest, mac_bytes, 6);
-    eth->h_proto = htons(0x0842); //WoL proto
-
-    memset(frame + ETH_HLEN, 0xFF, 6);
-
-    //Write magic pattern
-    for (int i = 1; i <= 16; i++) {
-        memcpy(frame + ETH_HLEN + i * 6, mac_bytes, 6);
-    }
-
-    struct sockaddr_ll socket_address = {0};
-    socket_address.sll_ifindex = ifIndex;
-    socket_address.sll_halen = ETH_ALEN;
-    memcpy(socket_address.sll_addr, eth->h_dest, 6);
-
-    //Now send the packet through the lan
-    if (sendto(rawSocket, frame, sizeof(frame), 0, (struct sockaddr*)&socket_address, sizeof(struct sockaddr_ll)) < 0) {
-        perror("Error while sending the WoL packet.");
-    }
 }

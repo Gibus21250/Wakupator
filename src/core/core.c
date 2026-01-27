@@ -13,7 +13,8 @@ const char* get_wakupator_message_code(const WAKUPATOR_CODE code)
         case INIT_MUTEX_CREATION_ERROR: return "Error while creating a mutex.";
         case INIT_PIPE_CREATION_ERROR: return "Error while creating main pipe.";
         case INIT_RAW_SOCKET_CREATION_ERROR: return "Error while creating a raw socket, did you have the permissions ?.";
-        case INIT_INTERFACE_GATHER_ERROR: return "Error while gathering interface information, please verify the interface name.";
+        case INIT_INTERFACE_GATHER_IF_INDEX_ERROR: return "Error while gathering interface index, please verify the interface name.";
+        case INIT_INTERFACE_GATHER_IF_MAC_ERROR: return "Error while gathering interface mac address.";
 
         case PARSING_CJSON_ERROR: return "An error has been found in the JSON. Please check the types, key names and structure.";
         case PARSING_INVALID_MAC_ADDRESS: return "Invalid MAC address format.";
@@ -28,6 +29,7 @@ const char* get_wakupator_message_code(const WAKUPATOR_CODE code)
         case MANAGER_THREAD_CREATION_ERROR: return "Internal error when creating the monitor thread.";
         case MANAGER_THREAD_INIT_ERROR: return "Error during initialisation of information for the monitor thread.";
         case MANAGER_THREAD_INIT_TIMEOUT: return "The initialization state of the monitor thread has taken too long.";
+        case MANAGER_IP6_NOT_AVAILABLE: return "IPv6 is not available on this instance of Wakupator.";
 
         case MONITOR_DAD_ERROR: return "Unable to temporarily disable the IPv6 duplicate address detector.";
         case MONITOR_CHECK_IP_ERROR: return "Error when executing the IP duplication verification command.";

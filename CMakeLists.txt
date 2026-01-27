@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(Wakupator VERSION 0.0.1 LANGUAGES C)
+project(Wakupator VERSION 1.2 LANGUAGES C)
+
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer -g")
+#set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
 
 add_library(cJSON STATIC
         ${PROJECT_SOURCE_DIR}/third_party/cJSON/src/cJSON.c
@@ -40,8 +43,9 @@ add_custom_command(
         TARGET wakupator
         POST_BUILD
         COMMAND sudo setcap cap_net_raw,cap_net_admin+ep $<TARGET_FILE:wakupator>
-        COMMENT "Setting ap_net_raw and cap_net_admin capabilities on wakupator"
+        COMMENT "Setting ap_net_raw and cap_net_admin capabilities to Wakupator"
 )
+
 target_link_libraries(wakupator PRIVATE cJSON pthread)
 
 install(TARGETS wakupator DESTINATION bin)

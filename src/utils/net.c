@@ -7,10 +7,95 @@
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <sys/socket.h>
+#include <ifaddrs.h>
 #include <linux/rtnetlink.h>
 #include <linux/netlink.h>
+#include <netpacket/packet.h>
+
+#include <netinet/ip6.h>
+#include <netinet/icmp6.h>
+
+#include "wakupator/log/log.h"
+
 
 #define BUFFER_SIZE 8192
+
+// ------ General net ------
+
+int parse_mac(const char *macStr, unsigned char *macRaw)
+{
+
+    if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &macRaw[0], &macRaw[1], &macRaw[2],
+                                                                &macRaw[3], &macRaw[4], &macRaw[5]) != 6)
+        return -1;
+
+    return 0;
+}
+
+int get_ipv6_link_local(const char *ifName, struct in6_addr *addr)
+{
+    struct ifaddrs *ifaddr;
+    int found = 0;
+
+    if (getifaddrs(&ifaddr) == -1) {
+        log_error("Error while retrieving IPv6 on the host.\n");
+        return -1;
+    }
+
+    //For each IPv6
+    for (const struct ifaddrs *ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL)
+            continue;
+
+        if (ifa->ifa_addr->sa_family == AF_INET6 && strcmp(ifa->ifa_name, ifName) == 0) {
+
+            const struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)ifa->ifa_addr;
+
+            if (IN6_IS_ADDR_LINKLOCAL(&addr6->sin6_addr)) {
+                memcpy(addr, &addr6->sin6_addr, sizeof(struct in6_addr));
+                found = 1;
+                break;
+            }
+        }
+    }
+
+    freeifaddrs(ifaddr);
+    return found ? 0 : -1;
+}
+
+int send_wake_on_lan(const int rawSocket, const int ifIndex, const unsigned char *macSrc, const unsigned char *macTarget)
+{
+    char frame[ETHER_HDR_LEN + 102];
+
+    struct ether_header *eth = (struct ether_header *) frame;
+
+    memset(eth->ether_dhost, 0xFF, ETH_ALEN);
+    memcpy(&eth->ether_shost, macSrc, ETH_ALEN);
+    eth->ether_type = htons(0x0842); //WoL proto 0x0842 (historical)
+
+    unsigned char *payload = (unsigned char *)(frame + ETHER_HDR_LEN);
+    //Sync stream
+    memset(payload, 0xFF, 6);
+
+    //Write magic pattern
+    for (int i = 0; i < 16; i++) {
+        memcpy(payload + 6 + i * ETH_ALEN, macTarget, ETH_ALEN);
+    }
+
+    struct sockaddr_ll socket_address = {0};
+    socket_address.sll_ifindex = ifIndex;
+    socket_address.sll_family = AF_PACKET;
+    socket_address.sll_halen = ETH_ALEN;
+    memcpy(socket_address.sll_addr, eth->ether_shost, ETH_ALEN);
+
+    //Now send the packet through the lan
+    if (sendto(rawSocket, frame, sizeof(frame), 0, (struct sockaddr*)&socket_address, sizeof(struct sockaddr_ll)) < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+// ------ Netlink manipulations ------
 
 typedef enum {
     IP_OP_ADD,
@@ -403,4 +488,179 @@ int check_ip_exists(const char *ip_str, ip_search_result_t *result) {
     } else {
         return check_ipv4_exists(ip_str, result);
     }
+}
+
+// ------ ARP and NS IPv6 ------
+int send_arp(const manager *mng, const char* target_ip)
+{
+
+    arp_packet pkt = {0};
+    struct sockaddr_ll addr;
+
+    struct in_addr target_addr;
+
+    if (inet_pton(AF_INET, target_ip, &target_addr) != 1) {
+        fprintf(stderr, "Invalid IPv4 address: %s\n", target_ip);
+    }
+
+    // ------ Ethernet Header ------
+    memset(pkt.eth.ether_dhost, 0xFF, 6);           // Broadcast
+    memcpy(pkt.eth.ether_shost, mng->ifMacRaw, 6);  // src mac
+    pkt.eth.ether_type = htons(ETH_P_ARP);
+
+    // ------ ARP Packet ------
+    pkt.arp.htype = htons(1);            // Ethernet
+    pkt.arp.ptype = htons(ETH_P_IP);     // IPv4
+    pkt.arp.hlen = 6;                            // MAC Length
+    pkt.arp.plen = 4;                            // IPv4 Length
+    pkt.arp.oper = htons(1);             // ARP Request
+
+    // Sender
+    memcpy(pkt.arp.sha, mng->ifMacRaw, 6);
+    memset(pkt.arp.spa, 0, 4);                   // 0.0.0.0 (gratuitous ARP)
+
+    // Target
+    memset(pkt.arp.tha, 0, 6);
+    memcpy(pkt.arp.tpa, &target_addr.s_addr, 4);
+
+    // ------ Destination Address (layer 2) ------
+    memset(&addr, 0, sizeof(addr));
+    addr.sll_family = AF_PACKET;
+    addr.sll_ifindex = mng->ifIndex;
+    addr.sll_halen = 6;
+    memset(addr.sll_addr, 0xFF, 6);              // Broadcast Ethernet
+
+    // Send packet
+    if (sendto(mng->mainRawSocket, &pkt, sizeof(pkt), 0, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+        return -1;
+
+    return 0;
+
+}
+
+uint16_t icmpv6_checksum(const struct in6_addr *src, const struct in6_addr *dst, void *icmp_data, const size_t icmp_len)
+{
+    //https://www.rfc-editor.org/rfc/rfc2463#section-2.3
+
+    //Pseudo header "IPv6 header"
+    struct {
+        struct in6_addr src;
+        struct in6_addr dst;
+        uint32_t length;
+        uint8_t zeros[3];
+        uint8_t next_header;
+    } __attribute__((packed)) pseudo_header;
+
+    memcpy(&pseudo_header.src, src, sizeof(struct in6_addr));
+    memcpy(&pseudo_header.dst, dst, sizeof(struct in6_addr));
+    pseudo_header.length = htonl(icmp_len);
+    pseudo_header.zeros[0] = 0;
+    pseudo_header.zeros[1] = 0;
+    pseudo_header.zeros[2] = 0;
+    pseudo_header.next_header = IPPROTO_ICMPV6;
+
+    uint32_t sum = 0;
+
+    // Checksum pseudo header
+    const uint16_t *ptr = (uint16_t *)&pseudo_header;
+    for (size_t i = 0; i < sizeof(pseudo_header) / 2; i++) {
+        sum += ntohs(ptr[i]);
+    }
+
+    // Checksum ICMPv6 data
+    ptr = (uint16_t *)icmp_data;
+    for (size_t i = 0; i < icmp_len / 2; i++) {
+        sum += ntohs(ptr[i]);
+    }
+
+    // Circular padding if odd
+    if (icmp_len % 2) {
+        sum += ((uint8_t *)icmp_data)[icmp_len - 1] << 8;
+    }
+
+    // Carry
+    while (sum >> 16) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    return ntohs(~sum);
+}
+
+int send_ns(const manager *mng, const char* target_ip)
+{
+
+    ns_packet pkt;
+
+    const size_t icmp_len = sizeof(struct nd_neighbor_solicit) + sizeof(struct nd_opt_hdr) + 6;
+
+    struct sockaddr_ll addr;
+    struct in6_addr target_addr;
+    struct in6_addr solicited_node_addr;
+    struct in6_addr src_addr;
+    struct in6_addr dst_addr;
+
+    if (inet_pton(AF_INET6, target_ip, &target_addr) != 1) {
+        log_error("Invalid IPv6 address: %s\n", target_ip);
+        return -1;
+    }
+
+    // ff02::1:ffXX:XXXX
+    memset(&solicited_node_addr, 0, sizeof(solicited_node_addr));
+    solicited_node_addr.s6_addr[0] = 0xff;
+    solicited_node_addr.s6_addr[1] = 0x02;
+    solicited_node_addr.s6_addr[11] = 0x01;
+    solicited_node_addr.s6_addr[12] = 0xff;
+    solicited_node_addr.s6_addr[13] = target_addr.s6_addr[13];
+    solicited_node_addr.s6_addr[14] = target_addr.s6_addr[14];
+    solicited_node_addr.s6_addr[15] = target_addr.s6_addr[15];
+
+    // ------ Ethernet Header ------
+    // MAC multicast IPv6: 33:33:XX:XX:XX:XX (last 32 bits of the IPv6 multicast)
+    pkt.eth.ether_dhost[0] = 0x33;
+    pkt.eth.ether_dhost[1] = 0x33;
+    memcpy(&pkt.eth.ether_dhost[2], &solicited_node_addr.s6_addr[12], 4);
+    //Src
+    memcpy(pkt.eth.ether_shost, mng->ifMacRaw, 6);
+    pkt.eth.ether_type = htons(ETH_P_IPV6);
+
+    // ------ IPv6 Header ------
+    pkt.ipv6.ip6_vfc = 0x60;
+    pkt.ipv6.ip6_plen = htons(sizeof(struct nd_neighbor_solicit) + sizeof(struct nd_opt_hdr) + 6);
+    pkt.ipv6.ip6_nxt = IPPROTO_ICMPV6;
+    pkt.ipv6.ip6_hlim = 255;
+
+    // Src = manager IPv6 Link Local address
+    memcpy(pkt.ipv6.ip6_src.s6_addr, &mng->ifIPv6LinkLocal, sizeof(struct in6_addr));
+
+    // Dest = solicited-node multicast
+    memcpy(&pkt.ipv6.ip6_dst, &solicited_node_addr, sizeof(struct in6_addr));
+
+    memcpy(&dst_addr, &solicited_node_addr, sizeof(struct in6_addr));
+    memcpy(&src_addr, &mng->ifIPv6LinkLocal, sizeof(struct in6_addr));
+
+    // ------ Neighbor Solicitation ------
+    pkt.ns.nd_ns_type = ND_NEIGHBOR_SOLICIT;
+    pkt.ns.nd_ns_code = 0;
+    pkt.ns.nd_ns_reserved = 0;
+    memcpy(&pkt.ns.nd_ns_target, &target_addr, sizeof(struct in6_addr));
+
+    // ------ Option: Source Link-Layer Address ------
+    pkt.opt.nd_opt_type = ND_OPT_SOURCE_LINKADDR;
+    pkt.opt.nd_opt_len = 1;
+    memcpy(pkt.src_mac, mng->ifMacRaw, 6);
+
+    //Checksum
+    pkt.ns.nd_ns_cksum = icmpv6_checksum(&src_addr, &dst_addr, &pkt.ns, icmp_len);
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sll_family = AF_PACKET;
+    addr.sll_ifindex = mng->ifIndex;
+    addr.sll_halen = 6;
+    memcpy(addr.sll_addr, pkt.eth.ether_dhost, 6);
+
+    //Send
+    if (sendto(mng->mainRawSocket, &pkt, sizeof(pkt), 0, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+        return -1;
+
+    return 0;
 }
