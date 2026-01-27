@@ -8,8 +8,19 @@ Type=simple
 StandardOutput=journal
 StandardError=journal
 
-User=root
+User=wakupator
+Group=wakupator
+
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+
 ExecStart=/bin/wakupator -H 2001:0db8:3c4d:4d58:1::1234 #Change to your IPv4/IPv6 and verify path
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/wakupator
 
 Restart=on-failure
 TimeoutStopSec=300
