@@ -1,104 +1,136 @@
 # Wakupator
 
-Simple and minimalist machine awakener using IP spoofing for the good cause.
+Lightweight, minimal dependencies and non-intrusive machine awakener service using IP spoofing for the good cause.
 
 ## Table of Contents
-1. [Overview](#overview)
+1. [Introduction](#introduction)
+   - [Overview](#overview)
+   - [Advantages](#advantages)
+   - [Limitations](#limitations)
+
 2. [Precautions](#precautions)
-    - [Local machine side](#local-machine-side)
-    - [Wakupator side](#wakupator-side)
-      - [Required](#Required)
-      - [Recommended](#Recommended)
+   - [Client machine side](#client-machine-side)
+   - [Wakupator host side](#wakupator-host-side)
+   - [Recommendations](#recommendations)
+
 3. [Get Started](#get-started)
-    - [Compile Project](#compile-project)
-    - [Pre-compiled Binaries](#pre-compiled-binaries)
+   - [Compile Project](#compile-project)
+   - [Pre-compiled Binaries](#pre-compiled-binaries)
+
 4. [How to Use](#how-to-use)
-      - [Logs](#logs)
-5. [Register a machine](#register-a-machine)
-   - [Example JSON](#example-json)
-6. [Real example](#Real-example)
-   - [Context](#Context)
+   - [Launch Wakupator](#launch-wakupator)
+   - [Register a Machine](#register-a-machine)
+
+5. [Example](#example)
+   - [Context](#context)
    - [Launch Wakupator](#launch-wakupator)
    - [Prepare the JSON](#prepare-the-json)
-   - [Automate machine registration](#automate-machine-registration)
-   - [Register the machine](#register-the-machine)
-   - [Final test](#final-test)
-7. [Contribute](#contributing)
-8. [License](#license)
-9. [Third-party](#Third-party-libraries)
+   - [Automate Machine Registration](#automate-machine-registration-during-shutdown-process)
+   - [Register the Machine](#register-the-machine)
+   - [Final Test](#final-test)
 
-## Overview
+6. [Contributing](#contributing)
+
+7. [License](#license)
+
+8. [Third-party Libraries](#third-party-libraries)
+
+## Introduction
+
+### Overview
 
 This service allows other machines on the **same LAN** to be woken up when specific traffic is detected.
-Before shutdown, machines can request to spoof their IP address(es) and associate one or more ports to each of them.
+Before shutdown, machines can request to spoof their IP address(es) and associate zero or more ports to each of them.
 When network traffic is detected, the registered machine is woken up via a **Wake-on-LAN** (IEEE 802.3) magic packet.
 
-The main goal of this project is to **reduce energy consumption** by **sacrificing availability**.
+The main goal of this project is to **reduce energy wasting** by **sacrificing availability**.
 
 This is ideal for home servers, small infrastructure which are hosting services that are not in use 24 hours a day.
 
+### Advantages
+
+- **No firewall configuration required**  
+  Wakupator reads packets before they reach the host firewall or local services.
+
+- **Works with any IP-based service**  
+  Wakupator does not depend on application-layer protocols and can wake machines based on low-level network traffic.
+
+- **Designed for self-hosted environments**  
+  Lightweight, minimal dependencies, non-intrusive and easy to integrate into an existing network.
 ___
+
+### Limitations
+
+- **Sensitive to unsolicited traffic and bot scans**  
+  Services exposed to the internet, especially HTTP/HTTPS or IPv4, may receive frequent scans.  
+  These packets can trigger Wakupator and cause machines to wake up more often than expected.
+
+### Mitigations
+
+Some strategies to reduce unwanted wake-ups:
+
+- Filter or block bot traffic higher in your network (router or hardware firewall)
 
 ## Precautions
 
-Your router or L3 OSI hardware should not have static IP/MAC bindings on IP addresses that could be spoofed by Wakupator.
+Wakupator relies on raw network traffic and IP spoofing. To ensure correct operation, please follow these precautions.
 
-When a machine needs to register with Wakupator, it should do so just before shutting down.
+- Your router or L3 hardware **must** not have static IP/MAC bindings on IP addresses that could be spoofed by Wakupator.
+- When a machine registers with Wakupator, it must do so shortly before shutdown.
+- On the user side, when accessing a stopped service, the first connection attempt may time out or reset.
+It depends on the machine's startup time and the service's behavior.
 
-On the client side and in some cases, the first connection attempt may result in a timeout or reset, **depending on the machine boot time,
-and the behavior of the service**.
 
-### Local machine side
+### Client machine side
 
-The machine must be able to be started by a magic Wake-On-LAN packet (IEEE 802.3). You need to enable this in your BIOS/UEFI,
-as well as in your operating system.
+The monitored machine must support Wake-On-LAN (IEEE 802.3). Enable this feature in both BIOS/UEFI and the operating system.
 
-If you want to monitor an `IPv6` address and the machine can be started manually, you should definitely disable duplicate IPv6 address detection on it.
-
-###### This is because the kernel of the machine, when configuring the IP stack, performs ARP and NS operations that Wakupator detects as soon as possible. But sometimes there is too much delay (of the order of a few milliseconds) between the removal of spoofed IP addresses and the update of the IP stack of the kernel of the machine hosting Wakupator, which will then respond that IPv6 is already in use.
-
-You can set this with the command:
+> [!IMPORTANT]
+> If you plan to monitor an `IPv6` address and the machine can be started manually, you **must** disable Duplicate Address Detection (DAD) on the client's machine:
 
 `````bash
 sysctl -w net.ipv6.conf.{interface/all}.accept_dad=0
 `````
-Replace *interface* with the name of the relevant interface.
+Replace `{interface/all}` with the name of the relevant interface (e.g., `eth0`), or use `all` to apply globally.
 
-### Wakupator side
+#### Why disabling DAD is necessary?
+
+When the monitored machine boots manually, it initializes its network interface and sends ICMPv6 Neighbor Solicitation probes to check if its IP is already in use. 
+As Wakupator is running simultaneously, the Linux kernel on the host might respond to these probes before Wakupator 
+finishes removing spoofed IPs, causing the machine to mark its address as a duplicate. Disabling DAD prevents this race condition.
+
+### Wakupator host side
 
 #### Required
 
-Wakupator needs to be executed by a user who have these permissions and have access to these commands:
+Wakupator requires the following capabilities to run:
 
-- The command `ip` from `iproute2` to add and delete spoofed IPs.
-- The command `sysctl` to temporally disable Duplicate Address Detection for IPv6 spoofing.
-- Capability `CAP_NET_RAW` to create raw sockets.
+- Capability `cap_net_raw` to create raw sockets.
+- Capability `cap_net_admin` to manage IP on the machine.
 
-**_Running Wakupator as root will grant it the necessary permissions._**
+**You can add these capabilities with the command:**
+`````bash
+sudo setcap cap_net_raw,cap_net_admin+eip /path/to/wakupator
+`````
 
-#### Recommended
+Alternatively, if you run Wakupator as a service, you can assign capabilities as shown in `example/host/wakupator.service`
 
-These recommendations do not prevent Wakupator from working, but their application helps improve the client experience and avoid certain side effects.
+#### Recommendations
 
-1. Wakupator should not be exposed outside your local network, and especially not to the Internet.
+These recommendations improve reliability and reduce side effects but are not strictly required:
 
-2. Ideally, you should bind all services hosted on the Wakupator's machine on **real** host IP:
-   - Services bound to "0.0.0.0" or "::" may use a spoofed IP address for outbound communications. (seen with IPv6)
-   - This prevents the client from establishing a connection with services hosted on the host (example with SSH) using a spoofed IP, 
-   which will be quickly closed. (because Wakupator will delete the IP simultaneously, and thus the OS will cut the connection 
-   to the client)
+1. **Keep Wakupator internal**  
+   Only machines inside the host’s LAN should be allowed to register. Do not expose Wakupator to the Internet.
 
-3. In addition to the previous recommendation, you should configure the firewall to only accept packets destined for the 
-   host's real IP addresses, and reject all others. This prevents the host from responding with RST packets, which would likely 
-   cause the client to abandon the connection attempt after receiving it.
+2. **Bind host services to real IPs**  
+   Avoid binding host services to `0.0.0.0` or `::`, which can conflict with spoofed IPs.  
+   Example: SSH on port 22 should bind only to the host’s actual IP.
 
-The idea is to prevent services on Wakupator's machine from mixing with those normally hosted by the spoofed machines running 
-on the same ports. Furthermore, it is necessary to prevent the machine from responding with a packet, even an RST, which 
-could close the client's connection attempt, and also unintentionally refresh the OS's ARP/NDS cache if it is on the same LAN.
+3. **Firewall rules**  
+   Accept only packets destined for the host’s real IPs and drop all others. This prevents unwanted RST packets and conflicts with spoofed IPs.
 
-With these rules, when packets are dropped, the client will simply resend connection initiation packets periodically 
-(until a timeout), so if the machine actually hosting the service starts up quickly enough, the client will only see high latency, 
-but all this will be done in an opaque way for the client!
+> [!NOTE]
+> These measures prevent the host machine from accidentally responding to clients on spoofed IPs, which could otherwise close connections or refresh network caches.
 
 This is an example of firewall rules:
 ````bash
@@ -118,7 +150,6 @@ table ip global4 {
                 [...]
       }
 }
-
 ````
 ___
 
@@ -126,15 +157,12 @@ ___
 
 ### Compile project
 
-Clone the project, go to the folder of the freshly cloned project, and generate compile files with CMake:
+Clone the project, go to the folder of the freshly cloned project, and generate build files with CMake:
 `````bash
-cmake -B"build"
+cmake -B"build" -DCMAKE_BUILD_TYPE=Release
+cmake --build build
 `````
-And then, go to the folder `build`, and launch the compilation with your tools, usually on linux it is MakeFiles:
-
-`````bash
-make
-`````
+And then, the executable is located in `build/wakupator`.
 
 ### Pre-compiled binaries
 
@@ -142,108 +170,153 @@ You can download precompiled binaries from the release tab.
 
 ## How to use
 
-To run Wakupator, bind it to an IP address using the -H (or --host) option:
+### Launch Wakupator
+
+To run Wakupator, specify the host IP address using the `-H` (or `--host`) option:
 
 ``wakupator -H <IPv4/v6>``
 
-You have some options to custom Wakupator behavior:
+For testing, you can run Wakupator manually.
+Make sure to set the required capabilities as described in the `Required` section.
 
-| Option                           | Description                                                                                           |
-|----------------------------------|-------------------------------------------------------------------------------------------------------|
-| `-H, --host <ip_address>`        | **(Required)** Set the host IP address. (IPv4 or IPv6)                                                |
-| `-p, --port <port_number>`       | Set the port number (0-65535, **DEFAULT**: 13717)                                                     |
-| `-if, --interface-name <name>`   | Specify the network interface name. (**DEFAULT**: eth0)                                               |
-| `-nb, --number-attempt <number>` | Set the number of Wake-On-LAN attempts. (**DEFAULT**: 3)                                              |
-| `-t, --time-between-attempt <s>` | Set the time in seconds between attempts. (**DEFAULT**: 30)                                           |
-| `-kc, --keep-client <0\|1>`      | Keep the client monitored if he doesn't start after <-nb> attempt(s). (0: NO, 1: Yes, **DEFAULT**: 1) |
+For production, it is recommended to run Wakupator as a service.
+
+**Service example:**
+```
+[Unit]
+Description=Wakupator server
+After=network-online.target
+
+[Service]
+Type=simple
+
+StandardOutput=journal
+StandardError=journal
+
+User=wakupator              #Verify user
+Group=wakupator             #Verify group
+
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+
+ExecStart=/path/to/wakupator -H 2001:0db8:3c4d:4d58:1::1234 #Change to your IPv4/IPv6 and verify path
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/wakupator
+
+Restart=on-failure
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target
+```
+An example systemd service is provided in `example/host/wakupator.service`.
+
+You can customize Wakupator behavior using the following options
+
+| Option                           | Description                                                                                                 |
+|----------------------------------|-------------------------------------------------------------------------------------------------------------|
+| **(Required)**                   |                                                                                                             |
+| `-H, --host <ip_address>`        | Set the host IP address. (IPv4 or IPv6)                                                                     |
+| General parameters               |                                                                                                             |
+| `-p, --port <port_number>`       | Set the port number (0-65535, **DEFAULT**: 13717)                                                           |
+| `-if, --interface-name <name>`   | Specify the network interface name. (**DEFAULT**: eth0)                                                     |
+| Shutdown control parameters      |                                                                                                             |
+| `-st, --shutdown-timeout <s>`    | Maximum time (seconds) to wait for a clean shutdown before considering failure. (**DEFAULT**: 600, -1: inf) |
+| `-pd, --probe-delay <s>`         | Define the delay (seconds) between ARP (IPv4) and NS (IPv6) probes. (**DEFAULT**: 4)                        |
+| Wake-up control parameters       |                                                                                                             |
+| `-nb, --number-attempt <number>` | Set the number of Wake-On-LAN attempts. (**DEFAULT**: 3)                                                    |
+| `-t, --time-between-attempt <s>` | Set the time in seconds between attempts. (**DEFAULT**: 30)                                                 |
+| `-kc, --keep-client <0\|1>`      | Keep the client monitored if it doesn't start after <-nb> attempt(s). (0: NO, 1: Yes, **DEFAULT**: 1)       |
+| `-help`                          | Display help message and examples.                                                                          |
 
 
 Examples:
 ```bash
-wakupator -H 192.168.1.37 -e eth2 -p 3717
-wakupator -H 192.168.0.37 -p 1234 -if eth2 -nb 5 -t 15 -kc 1
+./wakupator -H 192.168.0.37 -p 12345 -if eth2 -nb 5 -t 15 -kc 1
+./wakupator --host 2001:0db8:3c4d:c202:1::2222 --port 54321 --interface-name enp4s0 --number-attempt 6 --time-between-attempt 10 --keep-client 0
 ```
 
-### Logs
-
-If you want to test Wakupator, you can execute the Debug compiled version to see logs in your terminal.
-
-For production use, it's recommended to run Wakupator (Release compiled version) as a service. (An example is provided in `example/host`)
-
-Logs can then be viewed using:
-```
-journalctl -f -u yourServiceName
-```
-Or:
-```bash
-systemctl status yourService
-```
 ___
 
-## Register a machine
+### Register a machine
 
-To register a machine to Wakupator, establish a TCP connection to Wakupator and send a JSON payload. 
+To register a machine with Wakupator, establish a TCP connection to Wakupator and send a JSON payload.  
+Wakupator will wait for the machine to shut down after responding with `OK.`.
+Any other response indicates an error, and Wakupator will not proceed.  
 
-Wakupator will start monitoring and spoofing IPs after responding with `OK.`. Any other response indicates an error and 
-Wakupator will not proceed.
+Once the machine is offline, Wakupator will monitor and spoof all provided IPs/ports.
 
-**The client need to register itself just before shutting down**, an example of a systemd service and a python script
-is available in `example/machine`.
+**Important:** The client must register itself shortly before shutting down.  
+An example systemd service and a Python script for registration are available in `example/machine`.
 
-### Example JSON
+### Examples JSON payload
 
+Here are two examples of JSON payloads for registering a machine:
+
+**Single monitored IPv4 address:**
 `````json
 {
     "mac": "be:ef:fa:ce:c0:de",
+    "name": "MyMachineName",
     "monitor": [
         {
-            "ip": "191.168.0.12",
+            "ip": "192.168.0.12",
             "port": [25565]
         }
     ]
 }
 `````
 
+**Multiple monitored IPs (IPv4 and IPv6):**
 `````json
 {
     "mac": "be:ef:fa:ce:c0:de",
+    "name": "MyMachineName",
     "monitor": [
         {
-            "ip": "191.168.0.41",
+            "ip": "192.168.0.12",
             "port": [22, 25565]
         },
         {
           "ip": "2001:0db8:3c4d:c202:1::2222",
-          "port": [1234]
+          "port": [25565, 1234]
         }
     ]
 }
 `````
+
+>[!IMPORTANT]
+> Make sure the MAC address matches the monitored machine and that the JSON is sent just before shutdown.
+
 ___
 
-## Real example
+## Example
 
 ### Context
 
-In my case, my Raspberry PI (`raspberrypi`) runs Wakupator. I have another machine (`tartiflette`) with some services 
-like a Minecraft server bind on a IPv6 address (2001:0db8:3c4d:4d58:1::2222).
+In this example, Wakupator runs on my Raspberry PI (`raspberrypi`). I have another machine (`tartiflette`) 
+hosting services such as a Minecraft server bound to the IPv6 address (2001:0db8:3c4d:4d58:1::2222).
 
-I don't want that machine to run 24/7, wasting electricity when it's unused 80% of the time.
+I don’t want this machine to run 24/7, wasting electricity most of the time.
 
 My goal with Wakupator:
 
 - Wake up the machine (`tartiflette`) when traffic is detected on:
   - IP `2001:0db8:3c4d:4d58:1::2222` on ports 25565 (Minecraft) or 22 (SSH).
   - IP `192.168.0.37` on port 22 (SSH).
-- It is also likely that the machine is started manually, but Wakupator will detect it automatically.
+- The machine may also be started manually, and Wakupator will detect it automatically.
 
 ### Launch Wakupator
 
-First, we need to launch `Wakupator` on a machine, for my part it is the `raspberrypi` and I will launch the `release` version.
+First, we need to launch `Wakupator` on a machine. In this example, it runs on `raspberrypi`, and we will use the `release` version.
 
-**Don't forget to allow the port (default: 13717) on the host's firewall if necessary**
+*Ensure that the port (default: 13717) is allowed in the host's firewall if necessary.*
 
-On `raspberrypi`, we can monitor logs using:
+Once Wakupator is running, you should see the following log:
 
 ```bash
 journalctl -f -u wakupator
@@ -254,12 +327,12 @@ systemctl status wakupator
 At this point, with Wakupator running, you should see this log:
 
 ```
-Oct 21 10:43:13 raspberrypi Wakupator[65081]: Ready to register clients!`
+Feb 06 19:20:01 raspberrypi wakupator[2773297]: [INFO] Ready to register clients!
 ```
 
 ### Prepare the JSON
 
-After, we need to retrieve the MAC address of the related interface on the machine `tartiflette`.
+Retrieve the MAC address of the network interface on `tartiflette` that will be monitored..
 
 For this, you can use the command `ip link`:
 
@@ -271,13 +344,14 @@ For this, you can use the command `ip link`:
     # here ->  ^^^^^^^^^^^^^^^^^
 ```
 
-And now, for each IP and associated port(s) of services that we want, we need to construct a JSON object.
+Now, for each IP and its associated port(s) of the services you want to monitor, construct a JSON object as follows:
 
-Here's how the JSON looks:
+Here's how my JSON looks:
 
 `````json
 {
     "mac": "d8:cb:8a:39:be:a1",
+    "name": "Tartiflette",
     "monitor": [
         {
           "ip": "2001:0db8:3c4d:4d58:1::2222",
@@ -291,47 +365,48 @@ Here's how the JSON looks:
 }
 `````
 
-### Automate machine registration
+### Automate machine registration during shutdown process
 
-I will create a simple Python script to send this JSON payload.
+Create a simple Python script to send this JSON payload.  
+Place the script in `/etc/wakupator/register_to_wakupator.py`.
 
-I put the Python script in `/etc/wakupator/register_to_wakupator.py`
-
-Finally, I will create a service on `tartiflette` to execute this Python script just before shuts down.
-
-I put the service file in `/etc/systemd/system/register.service`.
+Create a systemd service on `tartiflette` to execute this Python script just before shutdown.  
+Place the service file in `/etc/systemd/system/register.service`.
 
 All related files are in `example/machine/`.
 
 Then execute these commands to enable the service: 
 ```bash
-root@tartiflette:/home/nathan# systemctl daemon-reload
-root@tartiflette:/home/nathan# systemctl enable register.service
+systemctl daemon-reload
+systemctl enable register.service
 
 #Verify the status
-root@tartiflette:/home/nathan# systemctl status register
+systemctl status register
  register.service - Register the system to Wakupator
      Loaded: loaded (/etc/systemd/system/register.service; enabled; preset: enabled)
-     Active: inactive (dead) # <-- OK because the script will be executed just before the machine shuts down.
+     Active: inactive (dead) # <-- It is normal that the service is inactive at this point, as it will run only during shutdown.
 ```
 
 To resume, when the machine shuts down, a Python script that sends the JSON payload to Wakupator is automatically executed by the service.
 
 ### Register the machine
 
-To register the machine, it needs to shut down. You can achieve that by executing the command `/sbin/shutdown now`,
-or simply by pressing the shutdown button.
+To register the machine, shut it down manually or using /sbin/shutdown now.
 
-Ideally you should design a custom script that shuts down the machine under certain conditions. (Mainly no network activity)
+Ideally, create a custom shutdown script that executes the registration under certain conditions, e.g., when there is no network activity.
 But for this test, we're going to shut down the machine manually.
 
 After shutting down the machine, you should see a log similar to this on the host, `raspberrypi`:
 
 ```
-Oct 21 10:45:32 raspberrypi Wakupator[65081]: New client registered: [d8:cb:8a:39:be:a1]
-                                                      IP: 2001:0db8:3c4d:4d58:1::2222, port: [25565, 22]
-                                                      IP: 192.168.0.37, port: [22]
-Oct 21 10:45:33 raspberrypi Wakupator[65081]: Monitoring started.
+Feb 06 19:22:38 raspberrypi wakupator[2773297]: [INFO] New client registered: Tartiflette (d8:cb:8a:39:be:a1)
+                                                              - IP: 2001:0db8:3c4d:4d58:1::2222, port: [25565, 22]
+                                                              - IP: 192.168.0.37, port: [22]
+Feb 06 19:22:38 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Waiting for the machine to stop completely before proceeding with the monitoring...
+Feb 06 19:22:38 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Using the IP 2001:0db8:3c4d:4d58:1::2222 as representative to check if the machine is off.
+Feb 06 19:22:42 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): ICMPv6 NS Request sent to 2001:0db8:3c4d:4d58:1::2222. (#1)
+Feb 06 19:22:46 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): The machine seems to be off in approximately 8s.
+Feb 06 19:22:46 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Start spoofing and monitoring IP addresses.
 ```
 
 ### Final test
@@ -345,23 +420,22 @@ You can also use `netcat` to simulate a TCP connection on a specific port:
 nc -zv 192.168.0.37 22
 ````
 
-The machine should start up immediately, and Wakupator will log every attempt and the boot time of the machine.
-
-A log will appear on the host like this:
+The machine should start up immediately, and Wakupator is logging every attempt and the boot time of the machine:
 
 ````
-Oct 21 10:49:50 raspberrypi Wakupator[65081]: Client [d8:cb:8a:39:be:a1]: traffic detected.
-Oct 21 10:49:50 raspberrypi Wakupator[65081]: Client [d8:cb:8a:39:be:a1]: Wake-On-Lan sent. (attempt 1)
-Oct 21 10:50:05 raspberrypi Wakupator[65081]: Client [d8:cb:8a:39:be:a1]: the machine has been started successfully. (15.77s)
-Oct 21 10:50:05 raspberrypi Wakupator[65081]: Client [d8:cb:8a:39:be:a1] has been retired from monitoring.
+Feb 06 19:24:18 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): traffic detected.
+Feb 06 19:24:18 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Packet Info: From 192.168.0.148:57794 to 192.168.0.37:22.
+Feb 06 19:24:18 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Wake-On-Lan sent. (#1)
+Feb 06 19:24:37 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): the machine has been started successfully. (20s)
+Feb 06 19:24:37 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Has been removed from monitoring. Total monitoring duration: 2m 13s
 ````
 
 You can also start the machine manually (by pressing the power button, or with a manual WoL packet), and Wakupator will see it, 
 and log this message:
 
 ````
-Oct 21 10:55:22 raspberrypi Wakupator[65081]: Client [d8:cb:8a:39:be:a1]: the machine appears to have been started manually.
-Oct 21 10:55:22 raspberrypi Wakupator[65081]: Client [d8:cb:8a:39:be:a1] has been retired from monitoring.
+Feb 06 19:30:45 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): the machine has been started manually.
+Feb 06 19:30:45 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Has been removed from monitoring. Total monitoring duration: 51s
 ````
 
 ## Contributing

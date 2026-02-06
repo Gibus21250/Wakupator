@@ -141,7 +141,7 @@ void destroy_manager(manager *mng_client)
             pthread_join(mng_client->clientThreadInfos[i].thread, NULL);
 
         log_debug("All thread execute a clean shutdown\n");
-        log_info("All the client have been woken up.");
+        log_info("All the client have been woken up.\n");
     } else
         pthread_mutex_unlock(&mng_client->mainLock);
 
