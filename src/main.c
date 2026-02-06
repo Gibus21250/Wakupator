@@ -106,7 +106,7 @@ void format_quoted_arguments(const int argc, char **argv)
 ARGS_PARSING_CODE parse_arguments(const int argc, char **argv, main_context *context)
 {
 
-    if(strcmp(argv[1], "--help") == 0) {
+    if(argc == 1 || strcmp(argv[1], "--help") == 0) {
         return PARSING_HELP;
     }
 
@@ -252,7 +252,7 @@ int wakupator_main(const int argc, char **argv)
 
     if(code != OK)
     {
-        log_fatal(get_wakupator_message_code(code), strerror(errno));
+        log_fatal("%s\n", get_wakupator_message_code(code), strerror(errno));
         close(server_fd);
         return EXIT_FAILURE;
     }

@@ -27,9 +27,9 @@ typedef struct manager {
 
         //Manager options
         int mainRawSocket;                          //Raw socket used by threads to send packets
-        uint16_t ifIndex;                                //Index of the interface
+        uint16_t ifIndex;                           //Index of the interface
         const char *ifName;                         //Char* name of the interface
-        const unsigned char ifMacRaw[6];            //Raw mac address of the manager interface
+        unsigned char ifMacRaw[6];                  //Raw mac address of the manager interface
 
         //IPv6
         struct in6_addr ifIPv6LinkLocal;            //IPv6 LL Address

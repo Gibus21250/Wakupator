@@ -47,6 +47,8 @@ The main goal of this project is to **reduce energy wasting** by **sacrificing a
 
 This is ideal for home servers, small infrastructure which are hosting services that are not in use 24 hours a day.
 
+Only works on Linux.
+
 ### Advantages
 
 - **No firewall configuration required**  
@@ -57,7 +59,6 @@ This is ideal for home servers, small infrastructure which are hosting services 
 
 - **Designed for self-hosted environments**  
   Lightweight, minimal dependencies, non-intrusive and easy to integrate into an existing network.
-___
 
 ### Limitations
 
@@ -236,8 +237,8 @@ You can customize Wakupator behavior using the following options
 
 Examples:
 ```bash
-./wakupator -H 192.168.0.37 -p 12345 -if eth2 -nb 5 -t 15 -kc 1
-./wakupator --host 2001:0db8:3c4d:c202:1::2222 --port 54321 --interface-name enp4s0 --number-attempt 6 --time-between-attempt 10 --keep-client 0
+wakupator -H 192.168.0.37 -p 12345 -if eth2 -nb 5 -t 15 -kc 1
+wakupator --host 2001:0db8:3c4d:c202:1::2222 --port 54321 --interface-name enp4s0 --number-attempt 6 --time-between-attempt 10 --keep-client 0
 ```
 
 ___
