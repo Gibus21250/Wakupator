@@ -39,7 +39,7 @@ const char help_message[] =
         "\t-if, --interface-name <name>       Specify the network interface name used for spoofing and probing. (DEFAULT: eth0)\n"
         "\n"
         "  Shutdown control parameters:\n"
-        "\t-st, --shutdown-timeout <s>        Maximum time (seconds) to wait for a clean shutdown before considering failure. (DEFAULT: 600, -1: inf)\n"
+        "\t-st, --shutdown-timeout <s>        Maximum time (seconds) to wait for a clean shutdown before canceling IP spoofing and monitoring. (DEFAULT: 600, -1: inf)\n"
         "\t-pd, --probe-delay <s>             Define the delay (seconds) between ARP (IPv4) and NS (IPv6) probes. (DEFAULT: 4)\n"
         "\n"
         "  Wake-up control parameters:\n"

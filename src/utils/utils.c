@@ -79,7 +79,7 @@ const char* print_ip_packet_info(const unsigned char *packetBuffer, ssize_t pack
         return NULL;
 
     if (packetSize < sizeof(struct ethhdr)) {
-        snprintf(message, MSG_SIZE, "Packet is too small. Unable to collect informations. (%zd bytes)", packetSize);
+        snprintf(message, MSG_SIZE, "Packet is too small. Unable to collect information. (%zd bytes)", packetSize);
         return message;
     }
 
