@@ -86,13 +86,13 @@ It depends on the machine's startup time and the service's behavior.
 
 The monitored machine must support Wake-On-LAN (IEEE 802.3). Enable this feature in both BIOS/UEFI and the operating system.
 
-> [!IMPORTANT]
+> [!WARNING]
 > If you plan to monitor an `IPv6` address and the machine can be started manually, you **must** disable Duplicate Address Detection (DAD) on the client's machine:
-
-`````bash
-sysctl -w net.ipv6.conf.{interface/all}.accept_dad=0
-`````
-Replace `{interface/all}` with the name of the relevant interface (e.g., `eth0`), or use `all` to apply globally.
+>
+>`````bash
+>sysctl -w net.ipv6.conf.{interface/all}.accept_dad=0
+>`````
+>Replace `{interface/all}` with the name of the relevant interface (e.g., `eth0`), or use `all` to apply globally.
 
 #### Why disabling DAD is necessary?
 
@@ -180,7 +180,8 @@ To run Wakupator, specify the host IP address using the `-H` (or `--host`) optio
 For testing, you can run Wakupator manually.
 Make sure to set the required capabilities as described in the `Required` section.
 
-For production, it is recommended to run Wakupator as a service.
+>[!TIP]
+>For production, it is recommended to run Wakupator as a service.
 
 **Service example:**
 ```
@@ -214,25 +215,24 @@ TimeoutStopSec=300
 [Install]
 WantedBy=multi-user.target
 ```
-An example systemd service is provided in `example/host/wakupator.service`.
 
 You can customize Wakupator behavior using the following options
 
-| Option                           | Description                                                                                                 |
-|----------------------------------|-------------------------------------------------------------------------------------------------------------|
-| **(Required)**                   |                                                                                                             |
-| `-H, --host <ip_address>`        | Set the host IP address. (IPv4 or IPv6)                                                                     |
-| General parameters               |                                                                                                             |
-| `-p, --port <port_number>`       | Set the port number (0-65535, **DEFAULT**: 13717)                                                           |
-| `-if, --interface-name <name>`   | Specify the network interface name. (**DEFAULT**: eth0)                                                     |
-| Shutdown control parameters      |                                                                                                             |
-| `-st, --shutdown-timeout <s>`    | Maximum time (seconds) to wait for a clean shutdown before considering failure. (**DEFAULT**: 600, -1: inf) |
-| `-pd, --probe-delay <s>`         | Define the delay (seconds) between ARP (IPv4) and NS (IPv6) probes. (**DEFAULT**: 4)                        |
-| Wake-up control parameters       |                                                                                                             |
-| `-nb, --number-attempt <number>` | Set the number of Wake-On-LAN attempts. (**DEFAULT**: 3)                                                    |
-| `-t, --time-between-attempt <s>` | Set the time in seconds between attempts. (**DEFAULT**: 30)                                                 |
-| `-kc, --keep-client <0\|1>`      | Keep the client monitored if it doesn't start after <-nb> attempt(s). (0: NO, 1: Yes, **DEFAULT**: 1)       |
-| `-help`                          | Display help message and examples.                                                                          |
+| Option                           | Description                                                                                                                  |
+|----------------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| **(Required)**                   |                                                                                                                              |
+| `-H, --host <ip_address>`        | Set the host IP address. (IPv4 or IPv6)                                                                                      |
+| General parameters               |                                                                                                                              |
+| `-p, --port <port_number>`       | Set the port number (0-65535, **DEFAULT**: 13717)                                                                            |
+| `-if, --interface-name <name>`   | Specify the network interface name. (**DEFAULT**: eth0)                                                                      |
+| Shutdown control parameters      |                                                                                                                              |
+| `-st, --shutdown-timeout <s>`    | Maximum time (seconds) to wait for a clean shutdown before canceling IP spoofing and monitoring. (**DEFAULT**: 600, -1: inf) |
+| `-pd, --probe-delay <s>`         | Define the delay (seconds) between ARP (IPv4) and NS (IPv6) probes. (**DEFAULT**: 4)                                         |
+| Wake-up control parameters       |                                                                                                                              |
+| `-nb, --number-attempt <number>` | Set the number of Wake-On-LAN attempts. (**DEFAULT**: 3)                                                                     |
+| `-t, --time-between-attempt <s>` | Set the time in seconds between attempts. (**DEFAULT**: 30)                                                                  |
+| `-kc, --keep-client <0\|1>`      | Keep the client monitored if it doesn't start after <nb> attempt(s). (0: No, 1: Yes, **DEFAULT**: 1)                        |
+| `-help`                          | Display help message and examples.                                                                                           |
 
 
 Examples:
@@ -246,13 +246,17 @@ ___
 ### Register a machine
 
 To register a machine with Wakupator, establish a TCP connection to Wakupator and send a JSON payload.  
-Wakupator will wait for the machine to shut down after responding with `OK.`.
-Any other response indicates an error, and Wakupator will not proceed.  
+Wakupator will wait for the machine to shut down after responding with the message `OK.`.
+
+> [!IMPORTANT]
+> Any other response indicates an error, and Wakupator will not go any further and will display information about the error.
 
 Once the machine is offline, Wakupator will monitor and spoof all provided IPs/ports.
 
-**Important:** The client must register itself shortly before shutting down.  
-An example systemd service and a Python script for registration are available in `example/machine`.
+> [!TIP]
+> The client must register itself shortly before shutting down.  
+> An example systemd service and a Python script for registration are available in `example/machine`.  
+> Use the `-st, --shutdown-timeout <seconds>` option with Wakupator if the default value (10 min) is not sufficient.
 
 ### Examples JSON payload
 
@@ -289,10 +293,6 @@ Here are two examples of JSON payloads for registering a machine:
     ]
 }
 `````
-
->[!IMPORTANT]
-> Make sure the MAC address matches the monitored machine and that the JSON is sent just before shutdown.
-
 ___
 
 ## Example
@@ -309,31 +309,30 @@ My goal with Wakupator:
 - Wake up the machine (`tartiflette`) when traffic is detected on:
   - IP `2001:0db8:3c4d:4d58:1::2222` on ports 25565 (Minecraft) or 22 (SSH).
   - IP `192.168.0.37` on port 22 (SSH).
-- The machine may also be started manually, and Wakupator will detect it automatically.
+- The machine may also be started externally, and Wakupator will detect it automatically.
 
 ### Launch Wakupator
 
 First, we need to launch `Wakupator` on a machine. In this example, it runs on `raspberrypi`, and we will use the `release` version.
 
-*Ensure that the port (default: 13717) is allowed in the host's firewall if necessary.*
+> [!NOTE]
+> Ensure that the port (default: 13717) is allowed in the host's firewall if necessary.
 
-Once Wakupator is running, you should see the following log:
+For demonstraton purposes, we can launch Wakupator directly as a command:
 
 ```bash
-journalctl -f -u wakupator
-or
-systemctl status wakupator
+./wakupator -H 192.168.0.84
 ```
 
 At this point, with Wakupator running, you should see this log:
 
-```
-Feb 06 19:20:01 raspberrypi wakupator[2773297]: [INFO] Ready to register clients!
+```bash
+[INFO] Ready to register clients!
 ```
 
 ### Prepare the JSON
 
-Retrieve the MAC address of the network interface on `tartiflette` that will be monitored..
+Retrieve the MAC address of the network interface on `tartiflette` that will be monitored.
 
 For this, you can use the command `ip link`:
 
@@ -374,7 +373,8 @@ Place the script in `/etc/wakupator/register_to_wakupator.py`.
 Create a systemd service on `tartiflette` to execute this Python script just before shutdown.  
 Place the service file in `/etc/systemd/system/register.service`.
 
-All related files are in `example/machine/`.
+> [!NOTE]
+> All related files are in `example/machine/`.
 
 Then execute these commands to enable the service: 
 ```bash
@@ -392,27 +392,35 @@ To resume, when the machine shuts down, a Python script that sends the JSON payl
 
 ### Register the machine
 
-To register the machine, shut it down manually or using /sbin/shutdown now.
+To register the `tartiflette` machine, it must be turned off gracefully.
 
-Ideally, create a custom shutdown script that executes the registration under certain conditions, e.g., when there is no network activity.
-But for this test, we're going to shut down the machine manually.
+For this demonstration, we will shut it down manually using the command:
 
-After shutting down the machine, you should see a log similar to this on the host, `raspberrypi`:
-
+```bash
+/sbin/shutdown now
 ```
-Feb 06 19:22:38 raspberrypi wakupator[2773297]: [INFO] New client registered: Tartiflette (d8:cb:8a:39:be:a1)
-                                                              - IP: 2001:0db8:3c4d:4d58:1::2222, port: [25565, 22]
-                                                              - IP: 192.168.0.37, port: [22]
-Feb 06 19:22:38 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Waiting for the machine to stop completely before proceeding with the monitoring...
-Feb 06 19:22:38 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Using the IP 2001:0db8:3c4d:4d58:1::2222 as representative to check if the machine is off.
-Feb 06 19:22:42 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): ICMPv6 NS Request sent to 2001:0db8:3c4d:4d58:1::2222. (#1)
-Feb 06 19:22:46 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): The machine seems to be off in approximately 8s.
-Feb 06 19:22:46 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Start spoofing and monitoring IP addresses.
+
+> [!TIP]
+> In production, you should create a custom shutdown script that executes the registration under certain conditions, e.g., when there is no network activity.
+
+After shutting down the machine, you should see logs similar to these:
+
+```bash
+[INFO] New client registered: Tartiflette (d8:cb:8a:39:be:a1)
+                              - IP: 2001:0db8:3c4d:4d58:1::2222, port: [25565, 22]
+                              - IP: 192.168.0.37, port: [22]
+[INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Waiting for the machine to stop completely before proceeding with the monitoring...
+[INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Using the IP 2001:0db8:3c4d:4d58:1::2222 as representative to check if the machine is off.
+[INFO] Client Tartiflette (D8:CB:8A:39:be:a1): ICMPv6 NS Request sent to 2001:0db8:3c4d:4d58:1::2222. (#1)
+[INFO] Client Tartiflette (D8:CB:8A:39:be:a1): The machine seems to be off in approximately 8s.
+[INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Start spoofing and monitoring IP addresses.
 ```
 
 ### Final test
 
-Now, test Wakupator's behavior by triggering one of your rules. I'll test it by initiating a TCP connection to IP 
+Now, we can test Wakupator's behavior by triggering one of your rules.  
+
+I'll test it by initiating a TCP connection to IP 
 `192.168.0.37` on port 22 (SSH).
 
 You can also use `netcat` to simulate a TCP connection on a specific port:
@@ -421,22 +429,23 @@ You can also use `netcat` to simulate a TCP connection on a specific port:
 nc -zv 192.168.0.37 22
 ````
 
-The machine should start up immediately, and Wakupator is logging every attempt and the boot time of the machine:
+The machine should start immediately, and Wakupator records each attempt, the apparent startup time, and the total monitoring time:
 
-````
-Feb 06 19:24:18 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): traffic detected.
-Feb 06 19:24:18 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Packet Info: From 192.168.0.148:57794 to 192.168.0.37:22.
-Feb 06 19:24:18 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Wake-On-Lan sent. (#1)
-Feb 06 19:24:37 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): the machine has been started successfully. (20s)
-Feb 06 19:24:37 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Has been removed from monitoring. Total monitoring duration: 2m 13s
+````bash
+[INFO] Client Tartiflette (D8:CB:8A:39:be:a1): traffic detected.
+[INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Packet Info: From 192.168.0.148:57794 to 192.168.0.37:22.
+[INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Wake-On-Lan sent. (#1)
+[INFO] Client Tartiflette (D8:CB:8A:39:be:a1): the machine has been started successfully. (20s)
+[INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Has been removed from monitoring. Total monitoring duration: 2m 13s
 ````
 
-You can also start the machine manually (by pressing the power button, or with a manual WoL packet), and Wakupator will see it, 
-and log this message:
+You can also start the machine manually by pressing the power button, or with a external WoL service.  
 
-````
-Feb 06 19:30:45 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): the machine has been started manually.
-Feb 06 19:30:45 raspberrypi wakupator[2773297]: [INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Has been removed from monitoring. Total monitoring duration: 51s
+Wakupator will see it, and log this message:
+
+````bash
+[INFO] Client Tartiflette (D8:CB:8A:39:be:a1): the machine has been started manually.
+[INFO] Client Tartiflette (D8:CB:8A:39:be:a1): Has been removed from monitoring. Total monitoring duration: 51s
 ````
 
 ## Contributing
