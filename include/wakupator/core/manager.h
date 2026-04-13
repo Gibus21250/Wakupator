@@ -49,7 +49,7 @@ typedef struct manager {
 WAKUPATOR_CODE init_manager(manager *manager, const char* ifName);
 void destroy_manager(manager *mng_client);
 
-WAKUPATOR_CODE register_client(manager *mng_client, client *newClient);
+WAKUPATOR_CODE register_client(manager *manager, client *newClient);
 int unregister_client(manager *mng_client, const char* strMac);
 
 void start_monitoring(manager *mng_client, const char* macClient);

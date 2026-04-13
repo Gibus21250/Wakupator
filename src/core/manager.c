@@ -163,73 +163,80 @@ void destroy_manager(manager *mng_client)
  * Register the client into the manager, and prepare the client's monitoring thread.
  * @return OK if done, otherwise the client hasn't been registered
  */
-WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
+WAKUPATOR_CODE register_client(manager *manager, client *newClient)
 {
     //Lock the manager struct
-    pthread_mutex_lock(&mng_client->mainLock);
+    pthread_mutex_lock(&manager->mainLock);
 
-    if (mng_client->hasIPv6 == 0)
+    log_debug("Manager locked.\n");
+
+    if (manager->hasIPv6 == 0)
     {
         //Verify that all requested IP addresses do not contain any IPv6 addresses
         for(int i = 0; i < newClient->countIp; ++i)
         {
             if (newClient->ipPortInfo[i].ipFormat == AF_INET6)
             {
-                pthread_mutex_unlock(&mng_client->mainLock);
+                pthread_mutex_unlock(&manager->mainLock);
                 return MANAGER_IP6_NOT_AVAILABLE;
             }
         }
     }
 
-
     //Verify that the client's mac address isn't already monitored
-    for (int i = 0; i < mng_client->count; ++i) {
-        if(strcasecmp(newClient->macStr, mng_client->clientThreadInfos[i].cl.macStr) == 0)
+    for (int i = 0; i < manager->count; ++i) {
+        if(strcasecmp(newClient->macStr, manager->clientThreadInfos[i].cl.macStr) == 0)
         {
-            pthread_mutex_unlock(&mng_client->mainLock);
+            pthread_mutex_unlock(&manager->mainLock);
             return MANAGER_MAC_ADDRESS_ALREADY_MONITORED;
         }
     }
 
     //If the buffer isn't big enough
-    if(mng_client->count == mng_client->bufferSize)
+    if(manager->count == manager->bufferSize)
     {
-        thread_monitor_info *tmp = realloc(mng_client->clientThreadInfos, (mng_client->bufferSize + BUFFER_GROW_STEP) * sizeof(thread_monitor_info));
+        log_debug("Increasing manager's clients buffer size.");
+        thread_monitor_info *tmp = realloc(manager->clientThreadInfos, (manager->bufferSize + BUFFER_GROW_STEP) * sizeof(thread_monitor_info));
         if(tmp != NULL)
         {
-            mng_client->clientThreadInfos = tmp;
-            mng_client->bufferSize += BUFFER_GROW_STEP;
+            manager->clientThreadInfos = tmp;
+            manager->bufferSize += BUFFER_GROW_STEP;
+            log_debug("Increase buffer size OK.");
         } else {
-            pthread_mutex_unlock(&mng_client->mainLock);
+            pthread_mutex_unlock(&manager->mainLock);
             return OUT_OF_MEMORY;
         }
     }
 
-    const uint32_t index = mng_client->count;
+    const uint32_t index = manager->count;
 
-    pthread_mutex_t *childMutex = &mng_client->registeringMutex;
-    pthread_cond_t *childCond = &mng_client->registeringCond;
+    pthread_mutex_t *registerMutex = &manager->registeringMutex;
+    pthread_cond_t *registerCond = &manager->registeringCond;
 
-    WAKUPATOR_CODE code = 0;
+    WAKUPATOR_CODE code = -1;
 
     main_monitor_args args = {
-            mng_client,
+            manager,
             newClient,
             &code
     };
 
+
     //Lock the child mutex first
-    pthread_mutex_lock(childMutex);
+    pthread_mutex_lock(registerMutex);
+    log_debug("Register mutex locked\n");
     pthread_t childThread;
 
     //Now we can start the child thread that going to monitor the client
     if(pthread_create(&childThread, NULL, main_client_monitoring, &args))
     {
         //If error while creating the thread
-        pthread_mutex_unlock(childMutex);
-        pthread_mutex_unlock(&mng_client->mainLock);
+        pthread_mutex_unlock(registerMutex);
+        pthread_mutex_unlock(&manager->mainLock);
         return MANAGER_THREAD_CREATION_ERROR;
     }
+
+    log_debug("Client thread started mutex locked\n");
 
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
@@ -237,31 +244,38 @@ WAKUPATOR_CODE register_client(manager *mng_client, client *newClient)
 
     //Wait a notification from the child thread, and this can time out
     //This call implicit atomically unlock the mutex, and main Lock it again after cond notified
-    if(pthread_cond_timedwait(childCond, childMutex, &timeout))
+    if(pthread_cond_timedwait(registerCond, registerMutex, &timeout))
     {
-        pthread_mutex_unlock(childMutex);
+        log_debug("Client thread timeout. Abort registering\n");
+        pthread_mutex_unlock(registerMutex);
         pthread_cancel(childThread); //Tell the child thread to cleanly abort
-        pthread_mutex_unlock(&mng_client->mainLock);
+        pthread_mutex_unlock(&manager->mainLock);
         return MANAGER_THREAD_INIT_TIMEOUT;
     }
+
+    log_debug("Client notify received.\n");
 
     //Check if no execution error during init phase of the child thread
     if(code != OK)
     {
-        pthread_mutex_unlock(childMutex);
+        log_debug("Error while initializing Client thread.\n");
+        pthread_mutex_unlock(registerMutex);
         pthread_join(childThread, NULL);
-        pthread_mutex_unlock(&mng_client->mainLock);
+        pthread_mutex_unlock(&manager->mainLock);
         return code;
     }
 
+    log_debug("Client Thread is OK.\n");
+
     //Finally, everything is ok
     //Shallow copy of the client, the child thread is responsible for the struct
-    mng_client->clientThreadInfos[index].cl = *newClient;
-    mng_client->clientThreadInfos[index].thread = childThread;
-    mng_client->count++;
+    manager->clientThreadInfos[index].cl = *newClient;
+    manager->clientThreadInfos[index].thread = childThread;
+    manager->count++;
 
-    pthread_mutex_unlock(childMutex);
-    pthread_mutex_unlock(&mng_client->mainLock);
+    //pthread_cond_signal(registerCond);
+    pthread_mutex_unlock(registerMutex);
+    pthread_mutex_unlock(&manager->mainLock);
 
     return OK;
 }
@@ -289,22 +303,4 @@ int unregister_client(manager *mng_client, const char* strMac)
     }
     pthread_mutex_unlock(&mng_client->mainLock);
     return found;
-}
-
-void start_monitoring(manager *mng_client, const char* macClient)
-{
-    pthread_mutex_lock(&mng_client->mainLock);
-
-    for (int i = 0; i < mng_client->count; ++i) {
-
-        if(strcasecmp(macClient, mng_client->clientThreadInfos[i].cl.macStr) == 0)
-        {
-            //Notify the thread to start!
-            pthread_mutex_lock(&mng_client->registeringMutex);
-            pthread_cond_signal(&mng_client->registeringCond);
-            pthread_mutex_unlock(&mng_client->registeringMutex);
-            break;
-        }
-    }
-    pthread_mutex_unlock(&mng_client->mainLock);
 }

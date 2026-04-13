@@ -329,9 +329,6 @@ int wakupator_main(const int argc, char **argv)
             log_info("New client registered: %s\n", info);
         free(info);
 
-        //Notify the monitor thread to spoof IPs and start monitoring
-        start_monitoring(&manager, cl.macStr);
-
     }//Main loop
 
     if(server_fd != -1)

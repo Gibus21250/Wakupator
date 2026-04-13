@@ -34,8 +34,8 @@ void *main_client_monitoring(void* args)
     const main_monitor_args mainClientArgs = *(main_monitor_args*) args;
     manager *manager = mainClientArgs.manager;
 
-    pthread_mutex_t *selfMutex = &manager->registeringMutex;
-    pthread_cond_t *selfCond = &manager->registeringCond;
+    pthread_mutex_t *registerMutex = &manager->registeringMutex;
+    pthread_cond_t *registerCond = &manager->registeringCond;
 
     //Shallow copy of the client
     client cl = *mainClientArgs.client;
@@ -50,10 +50,10 @@ void *main_client_monitoring(void* args)
 
     if(code != OK)
     {
-        pthread_mutex_lock(selfMutex);
+        pthread_mutex_lock(registerMutex);
         *mainClientArgs.wakupator_code = code;
-        pthread_cond_signal(selfCond);
-        pthread_mutex_unlock(selfMutex);
+        pthread_cond_signal(registerCond);
+        pthread_mutex_unlock(registerMutex);
         return NULL;
     }
 
@@ -65,10 +65,10 @@ void *main_client_monitoring(void* args)
 
     if(fds == NULL)
     {
-        pthread_mutex_lock(selfMutex);
+        pthread_mutex_lock(registerMutex);
         *mainClientArgs.wakupator_code = OUT_OF_MEMORY;
-        pthread_cond_signal(selfCond);
-        pthread_mutex_unlock(selfMutex);
+        pthread_cond_signal(registerCond);
+        pthread_mutex_unlock(registerMutex);
         return NULL;
     }
 
@@ -89,10 +89,10 @@ void *main_client_monitoring(void* args)
             for (uint32_t k = 0; k < nbSockCreated; ++k)
                 close(fds[k].fd);
 
-            pthread_mutex_lock(selfMutex);
+            pthread_mutex_lock(registerMutex);
             *mainClientArgs.wakupator_code = MONITOR_RAW_SOCKET_CREATION_ERROR;
-            pthread_cond_signal(selfCond);
-            pthread_mutex_unlock(selfMutex);
+            pthread_cond_signal(registerCond);
+            pthread_mutex_unlock(registerMutex);
             free(fds);
             return NULL;
         }
@@ -121,17 +121,13 @@ void *main_client_monitoring(void* args)
     log_debug("%s: ARP/NS and Master Notify created.\n", clientHeader);
 
     // --------------------------------- Notify the master that everything is OK -------------------------------------
-    pthread_mutex_lock(selfMutex);
+    log_debug("%s: Notify the master thread that everything is OK.\n", clientHeader);
+    pthread_mutex_lock(registerMutex);
     *mainClientArgs.wakupator_code = OK;
-    pthread_cond_signal(selfCond);
-    pthread_mutex_unlock(selfMutex);
+    pthread_cond_signal(registerCond);
+    pthread_mutex_unlock(registerMutex);
 
-    // ---------------------------------- Waiting notify from master to continue -------------------------------------
-
-    pthread_mutex_lock(selfMutex);
-    pthread_cond_wait(selfCond, selfMutex);
-    pthread_mutex_unlock(selfMutex);
-
+    sleep(1);
 
     log_info("%s: Waiting for the machine to stop completely before proceeding with the monitoring...\n",
                     clientHeader);
