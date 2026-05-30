@@ -141,6 +141,7 @@ int modify_ip_on_interface(const char* ifName, const char* ip_str, const ip_oper
     nlh->nlmsg_pid = getpid();
 
     ifa->ifa_family = strchr(ip_str, ':') ? AF_INET6 : AF_INET;
+    //32 Should be sufficient that IPv4 is not used for outgoing traffic
     ifa->ifa_prefixlen = (ifa->ifa_family == AF_INET) ? 32 : 128;
     ifa->ifa_scope = 0;
     ifa->ifa_index = if_nametoindex(ifName);
@@ -186,16 +187,41 @@ int modify_ip_on_interface(const char* ifName, const char* ip_str, const ip_oper
 
     nlh->nlmsg_len = NLMSG_ALIGN(nlh->nlmsg_len) + RTA_LENGTH(addr_len);
 
-    //If IPv6 and adding, disable DAD for this IP and adjust header len
+    //If IPv6 and adding, disable DAD + set deprecated IP and adjust header len
     if (ifa->ifa_family == AF_INET6 && operation == IP_OP_ADD) {
-        struct rtattr* rta_flags = (struct rtattr *)(((char *)nlh) + NLMSG_ALIGN(nlh->nlmsg_len));
-        const uint32_t flags = IFA_F_NODAD;
 
-        rta_flags->rta_type = IFA_FLAGS;
-        rta_flags->rta_len = RTA_LENGTH(sizeof(uint32_t));
-        memcpy(RTA_DATA(rta_flags), &flags, sizeof(uint32_t));
+        // NODAD Flag
+        {
+            struct rtattr *rta_flags = (struct rtattr *)(((char *)nlh) + NLMSG_ALIGN(nlh->nlmsg_len));
 
-        nlh->nlmsg_len = NLMSG_ALIGN(nlh->nlmsg_len) + RTA_LENGTH(sizeof(uint32_t));
+            const uint32_t flags = IFA_F_NODAD;
+
+            rta_flags->rta_type = IFA_FLAGS;
+            rta_flags->rta_len  = RTA_LENGTH(sizeof(uint32_t));
+
+            memcpy(RTA_DATA(rta_flags), &flags, sizeof(uint32_t));
+
+            nlh->nlmsg_len =
+                NLMSG_ALIGN(nlh->nlmsg_len) + RTA_LENGTH(sizeof(uint32_t));
+        }
+
+        {
+            struct ifa_cacheinfo ci;
+            memset(&ci, 0, sizeof(ci));
+
+            ci.ifa_prefered = 0;            //"deprecated" IP
+            ci.ifa_valid    = 0xFFFFFFFF;   //with infinite life
+
+            struct rtattr *rta_ci = (struct rtattr *)(((char *)nlh) + NLMSG_ALIGN(nlh->nlmsg_len));
+
+            rta_ci->rta_type = IFA_CACHEINFO;
+            rta_ci->rta_len  = RTA_LENGTH(sizeof(ci));
+
+            memcpy(RTA_DATA(rta_ci), &ci, sizeof(ci));
+
+            nlh->nlmsg_len =
+                NLMSG_ALIGN(nlh->nlmsg_len) + RTA_LENGTH(sizeof(ci));
+        }
     }
 
     // Prepare to send
