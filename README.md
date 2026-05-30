@@ -1,6 +1,7 @@
 # Wakupator
 
-Lightweight, minimal dependencies and non-intrusive machine awakener service using IP spoofing for the good cause.
+A service that allow machines on the same LAN to be automatically woken up, using IP address spoofing for a good cause.
+Lightweight, no dependencies, non-intrusive, and easy to integrate.
 
 ## Table of Contents
 1. [Introduction](#introduction)
@@ -19,7 +20,7 @@ Lightweight, minimal dependencies and non-intrusive machine awakener service usi
 
 4. [How to Use](#how-to-use)
    - [Launch Wakupator](#launch-wakupator)
-   - [Register a Machine](#register-a-machine)
+   - [How to register a Machine](#how-to-register-a-machine)
 
 5. [Example](#example)
    - [Context](#context)
@@ -39,47 +40,43 @@ Lightweight, minimal dependencies and non-intrusive machine awakener service usi
 
 ### Overview
 
-This service allows other machines on the **same LAN** to be woken up when specific traffic is detected.
-Before shutdown, machines can request to spoof their IP address(es) and associate zero or more ports to each of them.
-When network traffic is detected, the registered machine is woken up via a **Wake-on-LAN** (IEEE 802.3) magic packet.
+Wakupator allows other machines on the **same local network (LAN)** to automatically wake up when defined traffic is detected.
+
+1) Before shutdown, machines can request to spoof their IP addresses and associate zero or more ports to each of them.
+2) Wakupator checks and spoofs these IP addresses when the machine is turned off, then monitors the requested traffic.
+3) When specific traffic is detected, the registered machine is woken up by Wakupator via a **Wake-on-LAN** (IEEE 802.3) magic packet.
 
 The main goal of this project is to **reduce energy wasting** by **sacrificing availability**.
 
 This is ideal for home servers, small infrastructure which are hosting services that are not in use 24 hours a day.
 
-Only works on Linux.
+> [!NOTE]
+> - Wakupator runs only on Linux systems.
+> - Wakupator can wake up any type of system compatible with Wake On Lan.
 
 ### Advantages
 
-- **No firewall configuration required**  
-  Wakupator reads packets before they reach the host firewall or local services.
-
-- **Works with any IP-based service**  
-  Wakupator does not depend on application-layer protocols and can wake machines based on low-level network traffic.
-
-- **Designed for self-hosted environments**  
-  Lightweight, minimal dependencies, non-intrusive and easy to integrate into an existing network.
+- **No firewall configuration required**
+  - Wakupator reads packets before they reach the host firewall or local services.
+- **Works with any IP-based service**
+  - IPv4 and IPv6 compatible.
+  - Monitor UDP and TCP traffic.
+- **Very Lightway, no dependencies and easy to integrate**
 
 ### Limitations
 
-- **Sensitive to unsolicited traffic and bot scans**  
-  Services exposed to the internet, especially HTTP/HTTPS or IPv4, may receive frequent scans.  
-  These packets can trigger Wakupator and cause machines to wake up more often than expected.
+**Sensitive to unsolicited traffic and bot scans**
 
-### Mitigations
+Services exposed to the internet, especially HTTP/HTTPS or **IPv4**, may receive frequent scans.
+These traffic can trigger Wakupator and cause machines to wake up more often than expected.
 
-Some strategies to reduce unwanted wake-ups:
+> [!TIP]
+> Some strategies to reduce unwanted wake-ups:
+> - Filter or block bot traffic higher in your network (router or hardware firewall)
 
-- Filter or block bot traffic higher in your network (router or hardware firewall)
-
-## Precautions
-
-Wakupator relies on raw network traffic and IP spoofing. To ensure correct operation, please follow these precautions.
-
-- Your router or L3 hardware **must** not have static IP/MAC bindings on IP addresses that could be spoofed by Wakupator.
-- When a machine registers with Wakupator, it must do so shortly before shutdown.
-- On the user side, when accessing a stopped service, the first connection attempt may time out or reset.
-It depends on the machine's startup time and the service's behavior.
+> [!CAUTION]
+>
+> Your router or L3 hardware **must** not have static IP/MAC bindings on IP addresses that could be spoofed by Wakupator.
 
 
 ### Client machine side
@@ -87,18 +84,14 @@ It depends on the machine's startup time and the service's behavior.
 The monitored machine must support Wake-On-LAN (IEEE 802.3). Enable this feature in both BIOS/UEFI and the operating system.
 
 > [!WARNING]
-> If you plan to monitor an `IPv6` address and the machine can be started manually, you **must** disable Duplicate Address Detection (DAD) on the client's machine:
+> If you plan to monitor an `IPv6` address **and** the machine can be started manually (With an external WoL service, or even manually), you **must** disable Duplicate Address Detection (DAD) on the client's machine:
 >
 >`````bash
 >sysctl -w net.ipv6.conf.{interface/all}.accept_dad=0
 >`````
 >Replace `{interface/all}` with the name of the relevant interface (e.g., `eth0`), or use `all` to apply globally.
-
-#### Why disabling DAD is necessary?
-
-When the monitored machine boots manually, it initializes its network interface and sends ICMPv6 Neighbor Solicitation probes to check if its IP is already in use. 
-As Wakupator is running simultaneously, the Linux kernel on the host might respond to these probes before Wakupator 
-finishes removing spoofed IPs, causing the machine to mark its address as a duplicate. Disabling DAD prevents this race condition.
+> 
+> ###### When the monitored machine boots manually, it initializes its network interface and sends ICMPv6 Neighbor Solicitation probes to check if its IP is already in use. As Wakupator already spoofed these IPs, his host machine might respond to these probes before Wakupator finishes removing spoofed IPs, causing the machine to mark its address as a duplicate. Disabling DAD prevents this race condition.
 
 ### Wakupator host side
 
@@ -114,24 +107,29 @@ Wakupator requires the following capabilities to run:
 sudo setcap cap_net_raw,cap_net_admin+eip /path/to/wakupator
 `````
 
-Alternatively, if you run Wakupator as a service, you can assign capabilities as shown in `example/host/wakupator.service`
+Alternatively, if you run Wakupator as a service, you can add these capabilities as:
+
+```shell
+[Service]
+(...)
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+```
 
 #### Recommendations
 
 These recommendations improve reliability and reduce side effects but are not strictly required:
 
-1. **Keep Wakupator internal**  
+1. **Keep Wakupator local**  
    Only machines inside the host’s LAN should be allowed to register. Do not expose Wakupator to the Internet.
 
-2. **Bind host services to real IPs**  
-   Avoid binding host services to `0.0.0.0` or `::`, which can conflict with spoofed IPs.  
-   Example: SSH on port 22 should bind only to the host’s actual IP.
+2. **Bind original host services to real IPs**  
+   Avoid binding host services to `0.0.0.0` or `::`, which can conflict with spoofed IPs.
+   - Example: SSH on port 22 should bind only to the host’s actual IP directly.
 
 3. **Firewall rules**  
    Accept only packets destined for the host’s real IPs and drop all others. This prevents unwanted RST packets and conflicts with spoofed IPs.
-
-> [!NOTE]
-> These measures prevent the host machine from accidentally responding to clients on spoofed IPs, which could otherwise close connections or refresh network caches.
+   - These measures prevent the host machine from accidentally responding to clients on spoofed IPs, which could otherwise close connections or refresh network caches.
 
 This is an example of firewall rules:
 ````bash
@@ -231,7 +229,7 @@ You can customize Wakupator behavior using the following options
 | Wake-up control parameters       |                                                                                                                              |
 | `-nb, --number-attempt <number>` | Set the number of Wake-On-LAN attempts. (**DEFAULT**: 3)                                                                     |
 | `-t, --time-between-attempt <s>` | Set the time in seconds between attempts. (**DEFAULT**: 30)                                                                  |
-| `-kc, --keep-client <0\|1>`      | Keep the client monitored if it doesn't start after <nb> attempt(s). (0: No, 1: Yes, **DEFAULT**: 1)                        |
+| `-kc, --keep-client <0\|1>`      | Keep the client monitored if it doesn't start after <nb> attempt(s). (0: No, 1: Yes, **DEFAULT**: 1)                         |
 | `-help`                          | Display help message and examples.                                                                                           |
 
 
@@ -243,7 +241,7 @@ wakupator --host 2001:0db8:3c4d:c202:1::2222 --port 54321 --interface-name enp4s
 
 ___
 
-### Register a machine
+### How to register a machine
 
 To register a machine with Wakupator, establish a TCP connection to Wakupator and send a JSON payload.  
 Wakupator will wait for the machine to shut down after responding with the message `OK.`.
@@ -315,7 +313,7 @@ My goal with Wakupator:
 
 First, we need to launch `Wakupator` on a machine. In this example, it runs on `raspberrypi`, and we will use the `release` version.
 
-> [!NOTE]
+> [!WARNING]
 > Ensure that the port (default: 13717) is allowed in the host's firewall if necessary.
 
 For demonstraton purposes, we can launch Wakupator directly as a command:
@@ -373,7 +371,7 @@ Place the script in `/etc/wakupator/register_to_wakupator.py`.
 Create a systemd service on `tartiflette` to execute this Python script just before shutdown.  
 Place the service file in `/etc/systemd/system/register.service`.
 
-> [!NOTE]
+> [!TIP]
 > All related files are in `example/machine/`.
 
 Then execute these commands to enable the service: 
