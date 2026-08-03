@@ -26,27 +26,27 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
     client->countIp = 0;
     client->timeStarted = 0;
 
+    //----- Parse MAC address (STR and RAW) -----
     const cJSON *mac = cJSON_GetObjectItemCaseSensitive(json, "mac");
 
-    //Check for MAC address validity
-    if (!cJSON_IsString(mac) || (mac->valuestring == NULL) || verify_mac_format(mac->valuestring))
+    if (!cJSON_IsString(mac) || verify_mac_format(mac->valuestring))
     {
         cJSON_Delete(json);
         return PARSING_INVALID_MAC_ADDRESS;
     }
 
-    memcpy(client->macStr, mac->valuestring, sizeof(client->macStr));
+    strcpy(client->macStr, mac->valuestring);
 
-    if (parse_mac(client->macStr, client->macRaw))
+    if (str_to_raw_mac(client->macStr, client->macRaw))
     {
         cJSON_Delete(json);
         return PARSING_INVALID_MAC_ADDRESS;
     }
 
+    //----- Parse Name (STR) -----
     const cJSON *name = cJSON_GetObjectItemCaseSensitive(json, "name");
 
-    //Check for Name validity
-    if (!cJSON_IsString(name) || (name->valuestring == NULL))
+    if (!cJSON_IsString(name))
     {
         cJSON_Delete(json);
         return PARSING_INVALID_NAME_FORMAT;
@@ -57,9 +57,9 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
         return PARSING_INVALID_NAME_TOO_LONG;
     }
 
-    memcpy(client->name, name->valuestring, sizeof(client->name));
+    strcpy(client->name, name->valuestring);
 
-    //Now extract all ip and ports asked for monitoring
+    //----- Parse IP and PORT -----
     const cJSON *monitor_array = cJSON_GetObjectItemCaseSensitive(json, "monitor");
 
     if(!cJSON_IsArray(monitor_array))
@@ -84,17 +84,17 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
         return OUT_OF_MEMORY;
     }
 
-    //Check uniqueness of IPs
+    //----- ----- Verify uniqueness of each IP ----- -----
     for (int i = 0; i < monitor_count; ++i)
     {
         const cJSON *monitor_item = cJSON_GetArrayItem(monitor_array, i);
         const cJSON *ip = cJSON_GetObjectItemCaseSensitive(monitor_item, "ip");
 
-        if (!cJSON_IsString(ip) && (ip->valuestring == NULL))
+        if (!cJSON_IsString(ip))
         {
             destroy_client(client);
             cJSON_Delete(json);
-            return PARSING_INVALID_IP_ADDRESS;
+            return PARSING_INVALID_IP_ADDRESS_FORMAT;
         }
 
         for (int j = i+1; j < monitor_count; ++j)
@@ -102,11 +102,11 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
             const cJSON *monitor_item2 = cJSON_GetArrayItem(monitor_array, j);
             const cJSON *ip2 = cJSON_GetObjectItemCaseSensitive(monitor_item2, "ip");
 
-            if (!cJSON_IsString(ip2) && (ip2->valuestring == NULL))
+            if (!cJSON_IsString(ip2))
             {
                 destroy_client(client);
                 cJSON_Delete(json);
-                return PARSING_INVALID_IP_ADDRESS;
+                return PARSING_INVALID_IP_ADDRESS_FORMAT;
             }
 
             //Same IP asked in 2 different monitor object
@@ -138,7 +138,7 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
         {
             destroy_client(client);
             cJSON_Delete(json);
-            return PARSING_INVALID_IP_ADDRESS;
+            return PARSING_INVALID_IP_ADDRESS_FORMAT;
         }
 
         client->ipPortInfo[i].ipStr = (char*) malloc((strlen(ip->valuestring) + 1) * sizeof(char));
@@ -152,7 +152,7 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
 
         strcpy(client->ipPortInfo[i].ipStr, ip->valuestring);
 
-        //Ports asked to be managed for the ip asked
+        //Parse all ports for this IP
         const cJSON *ports_array = cJSON_GetObjectItemCaseSensitive(monitor_item, "port");
 
         if (!cJSON_IsArray(ports_array))
@@ -164,7 +164,7 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
 
         const int port_count = cJSON_GetArraySize(ports_array);
 
-        client->ipPortInfo[i].portCount = port_count;
+        client->ipPortInfo[i].portCount = 0;
         client->ipPortInfo[i].ports = NULL;
 
         //Parse each ports (if available)
@@ -179,6 +179,8 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
                 cJSON_Delete(json);
                 return OUT_OF_MEMORY;
             }
+
+            client->ipPortInfo[i].portCount = port_count;
 
             //For each port
             for (int j = 0; j < port_count; ++j) {
