@@ -10,7 +10,7 @@
 
 // ------ General net ------
 
-int parse_mac(const char *macStr, unsigned char *macRaw);
+int str_to_raw_mac(const char *macStr, unsigned char *macRaw);
 
 int get_ipv6_link_local(const char *ifName, struct in6_addr *addr);
 

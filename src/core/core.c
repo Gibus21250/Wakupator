@@ -21,7 +21,7 @@ const char* get_wakupator_message_code(const WAKUPATOR_CODE code)
         case PARSING_INVALID_SHUTDOWN_TIME_FORMAT: return "Invalid Shutdown value format.";
         case PARSING_INVALID_NAME_FORMAT: return "Invalid Name format.";
         case PARSING_INVALID_NAME_TOO_LONG: return "Name value is too long (max 45 char).";
-        case PARSING_INVALID_IP_ADDRESS: return "Invalid IP address format.";
+        case PARSING_INVALID_IP_ADDRESS_FORMAT: return "Invalid IP address format.";
         case PARSING_DUPLICATED_IP_ADDRESS: return "A duplicate IP has been found in the JSON, please merge all ports in an array for this IP.";
         case PARSING_INVALID_PORT: return "Invalid port value.";
 

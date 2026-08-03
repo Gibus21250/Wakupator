@@ -22,7 +22,7 @@
 
 // ------ General net ------
 
-int parse_mac(const char *macStr, unsigned char *macRaw)
+int str_to_raw_mac(const char *macStr, unsigned char *macRaw)
 {
 
     if (sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &macRaw[0], &macRaw[1], &macRaw[2],

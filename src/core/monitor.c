@@ -398,7 +398,7 @@ int create_raw_socket_arp_ns(const char macStr[18])
 
     uint8_t macRaw[6];
 
-    if (parse_mac(macStr, macRaw))
+    if (str_to_raw_mac(macStr, macRaw))
     {
         log_error("Error while parsing the MAC address\n");
         close(rawSocket);
