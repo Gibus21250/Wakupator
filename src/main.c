@@ -285,9 +285,16 @@ int wakupator_main(const int argc, char **argv)
         }
 
         //Reading the JSON from the client
-        const uint32_t size = read(client_fd, buffer, BUFFER_SIZE);
+        const ssize_t size = read(client_fd, buffer, BUFFER_SIZE);
+        if (size <= 0) {
         if (size == 0)
+                log_debug("Client disconnected before sending registration.\n");
+            else
+                log_error("Error while reading client: %s\n", strerror(errno));
+
+            close(client_fd);
             continue;
+        }
 
         log_debug("New registration received: %s\n", buffer);
 
