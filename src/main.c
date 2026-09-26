@@ -5,6 +5,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <stdio.h>
+#include <net/if.h>
 
 #include "wakupator/core/client.h"
 #include "wakupator/core/core.h"
@@ -32,11 +33,11 @@ const char help_message[] =
         "\n"
         "Options:\n"
         "  REQUIRED:\n"
-        "\t-H,  --host <ip_address>           Set the host IP address. (IPv4 or IPv6)\n"
+        "\t-if, --interface-name <name>       Specify the network interface name used for spoofing and probing.\n"
         "\n"
         "  General parameters:\n"
         "\t-p,  --port <port_number>          Define the port number. ([1-65535], DEFAULT: 13717)\n"
-        "\t-if, --interface-name <name>       Specify the network interface name used for spoofing and probing. (DEFAULT: eth0)\n"
+        "\t-H,  --host <ip_address>           Set the host IP address. (IPv4 or IPv6, DEFAULT: 0.0.0.0)\n"
         "\n"
         "  Shutdown control parameters:\n"
         "\t-st, --shutdown-timeout <s>        Maximum time (seconds) to wait for a clean shutdown before canceling IP spoofing and monitoring. (DEFAULT: 600, -1: inf)\n"
@@ -49,8 +50,8 @@ const char help_message[] =
         "\t--help                             Display this help message.\n"
         "\n"
         "Examples:\n"
-        "\twakupator -H 192.168.0.37 -p 12345 -if eth2 -nb 5 -t 15 -kc 1\n"
-        "\twakupator --host 2001:0db8:3c4d:c202:1::2222 --port 54321 --interface-name enp4s0 --number-attempt 6 --time-between-attempt 10 --keep-client 0\n"
+        "\twakupator -if eth2 -H 0.0.0.0 -p 12345  -nb 5 -t 15 -kc 1\n"
+        "\twakupator --interface-name enp4s0 --host 2001:0db8:3c4d:c202:1::2222 --port 54321 --number-attempt 6 --time-between-attempt 10 --keep-client 0\n"
         "\n"
         "Notes:\n"
         "\t- Required CAP_NET_RAW (raw sockets)\n"
@@ -58,8 +59,7 @@ const char help_message[] =
         "  Command:\n"
         "\t    sudo setcap cap_net_raw,cap_net_admin+eip /path/to/wakupator\n";
 
-
-typedef struct main_context {
+typedef struct wakupator_config {
     const char* ip;
     const char* ifName;
     uint16_t port;
@@ -68,7 +68,7 @@ typedef struct main_context {
     uint32_t timeBtwAttempt;
     uint16_t shutdownTimeout;
     uint16_t probeInterval;
-} main_context;
+} wakupator_config;
 
 typedef enum ARGS_PARSING_CODE {
     PARSING_OK = 0,
@@ -103,7 +103,7 @@ void format_quoted_arguments(const int argc, char **argv)
     }
 }
 
-ARGS_PARSING_CODE parse_arguments(const int argc, char **argv, main_context *context)
+ARGS_PARSING_CODE parse_arguments(const int argc, char **argv, wakupator_config *context)
 {
 
     if(argc == 1 || strcmp(argv[1], "--help") == 0) {
@@ -128,6 +128,11 @@ ARGS_PARSING_CODE parse_arguments(const int argc, char **argv, main_context *con
         }
         else if(strcmp(argv[i], "-if") == 0 || strcmp(argv[i], "--interface-name") == 0)
         {
+            if(strlen(argv[i+1]) > IFNAMSIZ)
+            {
+                log_error("Error: invalid interface name '%s'.\n", argv[i+1]);
+                return PARSING_ERROR;
+            }
             context->ifName = argv[i+1];
         }
         else if(strcmp(argv[i], "-nb") == 0 || strcmp(argv[i], "--number-attempt") == 0)
@@ -185,19 +190,19 @@ ARGS_PARSING_CODE parse_arguments(const int argc, char **argv, main_context *con
 int wakupator_main(const int argc, char **argv)
 {
 
-    main_context context;
+    wakupator_config config;
 
-    context.ip = NULL;
-    context.ifName = "eth0";
-    context.port = 13717;
-    context.nbAttempt = 3;
-    context.timeBtwAttempt = 30;
-    context.keepClient = 1;
-    context.shutdownTimeout = 600;
-    context.probeInterval = 4;
+    config.ip = "0.0.0.0";
+    config.ifName = NULL;
+    config.port = 13717;
+    config.nbAttempt = 3;
+    config.timeBtwAttempt = 30;
+    config.keepClient = 1;
+    config.shutdownTimeout = 600;
+    config.probeInterval = 4;
 
     format_quoted_arguments(argc, argv);
-    const int parseArgsRes = parse_arguments(argc, argv, &context);
+    const int parseArgsRes = parse_arguments(argc, argv, &config);
 
     if (parseArgsRes == PARSING_ERROR)
         return EXIT_FAILURE;
@@ -208,12 +213,15 @@ int wakupator_main(const int argc, char **argv)
     }
 
 
-    if(context.ip == NULL)
+    if(config.ifName == NULL)
     {
-        log_fatal("You need to bind Wakupator to an IP with the option -H <IPv4/v6> or --host <IPv4/v6>\n");
+        log_fatal("You need to bind Wakupator to a specific Interface with the option -if <ifName> or --interface-name <ifName> (exemple: eth0, enp5s0 etc)\n");
         return 0;
     }
     //------- PARSING OK -------
+
+    //------- PRINT START INFO -------
+    log_info("Starting Wakupator...");
 
     if (signal(SIGINT, handle_signal) == SIG_ERR) {
         log_fatal("Error while setup signal handler.\n");
@@ -227,11 +235,20 @@ int wakupator_main(const int argc, char **argv)
     struct sockaddr_storage serverAddress;
     int addrLen;
 
-    server_fd = init_ip_socket(context.ip, context.port, SOCK_STREAM, IPPROTO_TCP, &serverAddress, &addrLen);
+    server_fd = init_ip_socket(config.ip, config.port, SOCK_STREAM, IPPROTO_TCP, &serverAddress, &addrLen);
 
     if(server_fd == -1)
     {
-        log_fatal("Main server socket creation failed. IP Format invalid: '%s'.\n", context.ip);
+        log_fatal("Main server socket creation failed. IP Format invalid: '%s'.\n", config.ip);
+        return EXIT_FAILURE;
+    }
+
+    struct ifreq ifr = {0};
+    strncpy(ifr.ifr_name, config.ifName, IFNAMSIZ-1);
+    if(setsockopt(server_fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(ifr)))
+    {
+        log_fatal("Impossible to bind the socket to the interface: '%s'.\n", config.ifName);
+        close(server_fd);
         return EXIT_FAILURE;
     }
 
@@ -248,7 +265,7 @@ int wakupator_main(const int argc, char **argv)
     }
 
     manager manager;
-    WAKUPATOR_CODE code = init_manager(&manager, context.ifName);
+    WAKUPATOR_CODE code = init_manager(&manager, config.ifName);
 
     if(code != OK)
     {
@@ -257,16 +274,17 @@ int wakupator_main(const int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    manager.keepClient = (unsigned char) context.keepClient;
-    manager.nbAttempt = context.nbAttempt;
-    manager.timeBtwAttempt = context.timeBtwAttempt;
-    manager.shutdownTimeout = context.shutdownTimeout;
-    manager.probeInterval = context.probeInterval;
-
-    log_info("Ready to register clients!\n");
+    manager.keepClient = (unsigned char) config.keepClient;
+    manager.nbAttempt = config.nbAttempt;
+    manager.timeBtwAttempt = config.timeBtwAttempt;
+    manager.shutdownTimeout = config.shutdownTimeout;
+    manager.probeInterval = config.probeInterval;
 
     int client_fd;
     int running = 1;
+
+    log_info("Started Wakupator bound to interface %s and IP [%s]:%u\n", config.ifName, config.ip, config.port);
+    log_info("Ready to register clients!\n");
 
     while(running)
     {
