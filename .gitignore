@@ -3,6 +3,8 @@
 scripts/*
 scratch/*
 
+compile_commands.json
+
 # Prerequisites
 *.d
 
