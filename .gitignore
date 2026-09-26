@@ -1,5 +1,5 @@
 .idea/
-cmake-build*/
+*build*/
 scripts/*
 scratch/*
 
