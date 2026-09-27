@@ -37,14 +37,12 @@ typedef struct manager {
 
     // ------ Manually filled Data ------
 
-    // Wake up parameters
-    uint8_t wolKeepClient;                      //What to do when the machine didn't seems to start after nbAttempt
-    uint16_t wolMaxAttempts;                    //Number of WoL attempt to wake up the machine
-    uint32_t wolDelay;                          //Time in seconds between each WoL attempt
+    uint8_t keepClient;                         //What to do when the machine didn't seems to start after nbAttempt
+    uint16_t nbAttempt;                         //Number of WoL attempt to wake up the machine
+    uint32_t timeBtwAttempt;                    //Time in seconds between each WoL attempt
 
-    // Shutdown parameters
     uint32_t shutdownTimeout;                   //Timeout in seconds waiting the machine to shut down
-    uint32_t shutdownProbeInterval;             //Interval between each ARP/NS probe
+    uint32_t probeInterval;                     //Interval between each ARP/NS probe
 
 } manager;
 
