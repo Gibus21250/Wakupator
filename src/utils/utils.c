@@ -30,11 +30,6 @@ int init_ip_socket(const char *ip, const int port, const int sockType, const int
     // To avoid bind: Address already in use
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    if (AF == AF_INET6) {
-        // Disable Dual stack listening (for [::] binding)
-        setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, &opt, sizeof(opt));
-    }
-
     if (AF == AF_INET) {
         // IPv4
         struct sockaddr_in* saddr = (struct sockaddr_in*) storeAddrInfo;

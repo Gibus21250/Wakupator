@@ -1,7 +1,9 @@
 .idea/
-cmake-build*/
+*build*/
 scripts/*
 scratch/*
+
+compile_commands.json
 
 # Prerequisites
 *.d
