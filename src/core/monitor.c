@@ -139,7 +139,7 @@ void *main_client_monitoring(void* args)
 
     char buffer[1024];
 
-    const uint16_t nbMaxProbe = manager->shutdownTimeout / manager->probeInterval;
+    const uint16_t nbMaxProbe = manager->shutdownTimeout / manager->shutdownProbeInterval;
 
     struct timespec start, end;
     char timeBuf[64];
@@ -151,7 +151,7 @@ void *main_client_monitoring(void* args)
     // ------------------------------------ Waiting the machine to turn off ------------------------------------------
     do
     {
-        sleep(manager->probeInterval);
+        sleep(manager->shutdownProbeInterval);
 
         //Clear the socket
         while (recv(fds[nbSockCreated-2].fd, buffer, sizeof(buffer), MSG_DONTWAIT) > 0) {}
@@ -180,11 +180,11 @@ void *main_client_monitoring(void* args)
         nbAttempt++;
 
         //Waiting for arp/ns socket activity
-        res = poll(&fds[nbSockCreated-2], 1, (int) manager->probeInterval * 1000);
+        res = poll(&fds[nbSockCreated-2], 1, (int) manager->shutdownProbeInterval * 1000);
 
         if (res > 0) {
             log_info("%s: Got a reply from the request. Retry in %ds.\n",
-                            clientHeader, manager->probeInterval);
+                            clientHeader, manager->shutdownProbeInterval);
         }
         else if (res == 0)
             break;
@@ -308,10 +308,10 @@ void *main_client_monitoring(void* args)
                     nbAttempt++;
 
                     //Waiting only for arp/ns socket activity
-                    res = poll(&fds[nbSockCreated-2], 1, (int) manager->timeBtwAttempt * 1000);
+                    res = poll(&fds[nbSockCreated-2], 1, (int) manager->wolDelay * 1000);
 
                     //== 0 means no activity detected (= timeout), and no error
-                }while(res == 0 && nbAttempt <= manager->nbAttempt);
+                }while(res == 0 && nbAttempt <= manager->wolMaxAttempts);
 
                 clock_gettime(CLOCK_MONOTONIC, &end);
                 timeElapsed = (uint64_t) (end.tv_sec - start.tv_sec);
@@ -325,13 +325,13 @@ void *main_client_monitoring(void* args)
                 }
                 else
                 {
-                    if(manager->keepClient == 1)
+                    if(manager->wolKeepClient == 1)
                     {
                         spoof_client_ips(manager, &cl);
-                        log_info("%s: the machine does not appear to have started after %d attempts, monitoring resumes. (%s)\n", clientHeader, manager->nbAttempt, timeBuf);
+                        log_info("%s: the machine does not appear to have started after %d attempts, monitoring resumes. (%s)\n", clientHeader, manager->wolMaxAttempts, timeBuf);
                     }else
                     {
-                        log_info("%s: the machine does not appear to have started after %d attempts. (%s)\n", clientHeader, manager->nbAttempt, timeBuf);
+                        log_info("%s: the machine does not appear to have started after %d attempts. (%s)\n", clientHeader, manager->wolMaxAttempts, timeBuf);
                         monitoring = 0;
                     }
                 }

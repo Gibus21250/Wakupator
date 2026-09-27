@@ -29,45 +29,35 @@ void handle_signal(int signum) {
 }
 
 const char help_message[] =
-        "Usage: wakupator <-H|--host> <ip_address> [OPTIONS]\n"
+        "Usage: wakupator <-if|--interface-name> <if_name> [OPTIONS]\n"
         "\n"
         "Options:\n"
         "  REQUIRED:\n"
         "\t-if, --interface-name <name>       Specify the network interface name used for spoofing and probing.\n"
         "\n"
         "  General parameters:\n"
-        "\t-p,  --port <port_number>          Define the port number. ([1-65535], DEFAULT: 13717)\n"
         "\t-H,  --host <ip_address>           Set the host IP address. (IPv4 or IPv6, DEFAULT: 0.0.0.0)\n"
+        "\t-p,  --port <port_number>          Define the port number. ([1-65535], DEFAULT: 13717)\n"
         "\n"
         "  Shutdown control parameters:\n"
-        "\t-st, --shutdown-timeout <s>        Maximum time (seconds) to wait for a clean shutdown before canceling IP spoofing and monitoring. (DEFAULT: 600, -1: inf)\n"
-        "\t-pd, --probe-delay <s>             Define the delay (seconds) between ARP (IPv4) and NS (IPv6) probes. (DEFAULT: 4)\n"
+        "\t-st, --shutdown-timeout <s>        Maximum time in seconds to wait for the machine to be offline before canceling IP spoofing and monitoring. (DEFAULT: 600, -1: inf)\n"
+        "\t-spd, --shutdown-probe-delay <s>   Define the delay (seconds) between ARP (IPv4) and NS (IPv6) probes. (DEFAULT: 4)\n"
         "\n"
         "  Wake-up control parameters:\n"
-        "\t-nb, --number-attempts <number>    Define the number of Wake-On-LAN attempts. (DEFAULT: 3)\n"
-        "\t-t,  --time-between-attempt <s>    Define the time (seconds) between Wake-On-LAN attempts. (DEFAULT: 30)\n"
-        "\t-kc, --keep-client <0|1>           Keep the client monitored if it doesn't start after <-nb> attempt(s). (0: False, 1: True, DEFAULT: 1)\n"
-        "\t--help                             Display this help message.\n"
-        "\n"
-        "Examples:\n"
-        "\twakupator -if eth2 -H 0.0.0.0 -p 12345  -nb 5 -t 15 -kc 1\n"
-        "\twakupator --interface-name enp4s0 --host 2001:0db8:3c4d:c202:1::2222 --port 54321 --number-attempt 6 --time-between-attempt 10 --keep-client 0\n"
-        "\n"
-        "Notes:\n"
-        "\t- Required CAP_NET_RAW (raw sockets)\n"
-        "\t- Required CAP_NET_ADMIN (IP address management)\n"
-        "  Command:\n"
-        "\t    sudo setcap cap_net_raw,cap_net_admin+eip /path/to/wakupator\n";
+        "\t-wma, --wol-max-attempts <number>  Define the maximum attemps of Wake-On-LAN. (DEFAULT: 3)\n"
+        "\t-wd,  --wol-delay <s>              Define the time (seconds) between Wake-On-LAN attempts. (DEFAULT: 30)\n"
+        "\t-wkc, --wol-keep-client <0|1>      Keep the client monitored if it doesn't start after maximum attempt(s). (0: False, 1: True, DEFAULT: 1)\n"
+        "\t--help                             Display this help message.\n";
 
 typedef struct wakupator_config {
-    const char* ip;
     const char* ifName;
+    const char* ip;
     uint16_t port;
-    uint16_t keepClient;
-    uint32_t nbAttempt;
-    uint32_t timeBtwAttempt;
+    uint16_t wolKeepClient;
+    uint32_t wolMaxAttempts;
+    uint32_t wolDelay;
     uint16_t shutdownTimeout;
-    uint16_t probeInterval;
+    uint16_t shutdownProbeInterval;
 } wakupator_config;
 
 typedef enum ARGS_PARSING_CODE {
@@ -135,29 +125,29 @@ ARGS_PARSING_CODE parse_arguments(const int argc, char **argv, wakupator_config 
             }
             context->ifName = argv[i+1];
         }
-        else if(strcmp(argv[i], "-nb") == 0 || strcmp(argv[i], "--number-attempt") == 0)
+        else if(strcmp(argv[i], "-wma") == 0 || strcmp(argv[i], "--wol-max-attempts") == 0)
         {
             char *endPtr;
-            context->nbAttempt = (uint32_t) strtol(argv[i+1], &endPtr, 10);
+            context->wolMaxAttempts = (uint32_t) strtol(argv[i+1], &endPtr, 10);
 
             if (*endPtr != '\0') {
                 log_error("Error: invalid number attempt value '%s'.\n", argv[i+1]);
                 return PARSING_ERROR;
             }
         }
-        else if(strcmp(argv[i], "-t") == 0 || strcmp(argv[i], "--time-between-attempt") == 0)
+        else if(strcmp(argv[i], "-wd") == 0 || strcmp(argv[i], "--wol-delay") == 0)
         {
             char *endPtr;
-            context->timeBtwAttempt = (uint32_t) strtol(argv[i+1], &endPtr, 10);
+            context->wolDelay = (uint32_t) strtol(argv[i+1], &endPtr, 10);
 
             if (*endPtr != '\0') {
                 log_error("Error: invalid time between attempt value '%s'.\n", argv[i+1]);
                 return PARSING_ERROR;
             }
         }
-        else if(strcmp(argv[i], "-kc") == 0 || strcmp(argv[i], "--keep-client") == 0)
+        else if(strcmp(argv[i], "-wkc") == 0 || strcmp(argv[i], "--wol-keep-client") == 0)
         {
-            context->keepClient = argv[i+1][0] == '0'?0:1;
+            context->wolKeepClient = argv[i+1][0] == '0'?0:1;
         }
         else if(strcmp(argv[i], "-st") == 0 || strcmp(argv[i], "--shutdown-timeout") == 0)
         {
@@ -169,10 +159,10 @@ ARGS_PARSING_CODE parse_arguments(const int argc, char **argv, wakupator_config 
                 return PARSING_ERROR;
             }
         }
-        else if(strcmp(argv[i], "-pd") == 0 || strcmp(argv[i], "--probe-delay") == 0)
+        else if(strcmp(argv[i], "-spd") == 0 || strcmp(argv[i], "--shutdown-probe-delay") == 0)
         {
             char *endPtr;
-            context->probeInterval = (uint32_t) strtol(argv[i+1], &endPtr, 10);
+            context->shutdownProbeInterval = (uint32_t) strtol(argv[i+1], &endPtr, 10);
 
             if (*endPtr != '\0') {
                 log_error("Error: invalid probe interval value '%s'.\n", argv[i+1]);
@@ -195,11 +185,11 @@ int wakupator_main(const int argc, char **argv)
     config.ip = "0.0.0.0";
     config.ifName = NULL;
     config.port = 13717;
-    config.nbAttempt = 3;
-    config.timeBtwAttempt = 30;
-    config.keepClient = 1;
+    config.wolMaxAttempts = 3;
+    config.wolDelay = 30;
+    config.wolKeepClient = 1;
     config.shutdownTimeout = 600;
-    config.probeInterval = 4;
+    config.shutdownProbeInterval = 4;
 
     format_quoted_arguments(argc, argv);
     const int parseArgsRes = parse_arguments(argc, argv, &config);
@@ -274,16 +264,16 @@ int wakupator_main(const int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    manager.keepClient = (unsigned char) config.keepClient;
-    manager.nbAttempt = config.nbAttempt;
-    manager.timeBtwAttempt = config.timeBtwAttempt;
+    manager.wolKeepClient = (unsigned char) config.wolKeepClient;
+    manager.wolMaxAttempts = config.wolMaxAttempts;
+    manager.wolDelay = config.wolDelay;
     manager.shutdownTimeout = config.shutdownTimeout;
-    manager.probeInterval = config.probeInterval;
+    manager.shutdownProbeInterval = config.shutdownProbeInterval;
 
     int client_fd;
     int running = 1;
 
-    log_info("Started Wakupator bound to interface %s and IP [%s]:%u\n", config.ifName, config.ip, config.port);
+    log_info("Started Wakupator bound to interface %s and listen on [%s]:%u\n", config.ifName, config.ip, config.port);
     log_info("Ready to register clients!\n");
 
     while(running)
