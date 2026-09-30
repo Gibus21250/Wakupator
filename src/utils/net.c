@@ -1,5 +1,6 @@
 #include "wakupator/utils/net.h"
 
+#include <asm-generic/errno-base.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -102,183 +103,180 @@ typedef enum {
     IP_OP_REMOVE
 } ip_operation_t;
 
-int modify_ip_on_interface(const char* ifName, const char* ip_str, const ip_operation_t operation) {
-
-    const int sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
+/*
+Wrapper to create and send a NetLink message
+*/
+static int nl_talk(struct nlmsghdr *nlh) {
+    int sock = socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
     if (sock < 0) {
-        perror("Error while creating raw socket for Netlink.");
+        perror("Error creating Netlink socket");
         return -1;
     }
 
-    //Bind to NetLink
-    struct sockaddr_nl local = {
-        .nl_family = AF_NETLINK
-    };
-
+    struct sockaddr_nl local = { .nl_family = AF_NETLINK };
     if (bind(sock, (struct sockaddr*)&local, sizeof(local)) < 0) {
-        perror("Error while binding raw socket for Netlink.");
+        perror("Error binding Netlink socket");
         close(sock);
         return -1;
     }
 
-    char buf[BUFFER_SIZE] = {0};
-
-    //NetLink header
-    struct nlmsghdr *nlh = (struct nlmsghdr*) buf;
-    struct ifaddrmsg *ifa = (struct ifaddrmsg *)(buf + sizeof(struct nlmsghdr));
-
-    nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct ifaddrmsg));
-
-    if (operation == IP_OP_ADD) {
-        nlh->nlmsg_type = RTM_NEWADDR;
-        nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE | NLM_F_REPLACE | NLM_F_ACK;
-    } else {  // IP_OP_REMOVE
-        nlh->nlmsg_type = RTM_DELADDR;
-        nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
-    }
-
-    nlh->nlmsg_seq = 1;
-    nlh->nlmsg_pid = getpid();
-
-    ifa->ifa_family = strchr(ip_str, ':') ? AF_INET6 : AF_INET;
-    //32 Should be sufficient that IPv4 is not used for outgoing traffic
-    ifa->ifa_prefixlen = (ifa->ifa_family == AF_INET) ? 32 : 128;
-    ifa->ifa_scope = 0;
-    ifa->ifa_index = if_nametoindex(ifName);
-
-    if (ifa->ifa_index == 0) {
-        fprintf(stderr, "Invalid interface name: %s.\n", ifName);
-        close(sock);
-        return -1;
-    }
-
-    // IP struct
-    void* addr_buf = NULL;
-    int addr_len = 0;
-
-    if (ifa->ifa_family == AF_INET) {
-        struct in_addr* ip = malloc(sizeof(struct in_addr));
-        if (inet_pton(AF_INET, ip_str, ip) != 1) {
-            fprintf(stderr, "Invalid IPv4 address: %s.\n", ip_str);
-            free(ip);
-            close(sock);
-            return -1;
-        }
-        addr_buf = ip;
-        addr_len = sizeof(struct in_addr);
-    } else {
-        struct in6_addr* ip6 = malloc(sizeof(struct in6_addr));
-        if (inet_pton(AF_INET6, ip_str, ip6) != 1) {
-            fprintf(stderr, "Invalid IPv6 address: %s.\n", ip_str);
-            free(ip6);
-            close(sock);
-            return -1;
-        }
-        addr_buf = ip6;
-        addr_len = sizeof(struct in6_addr);
-    }
-
-    //Prepare RTA struct and copy IP binary
-    struct rtattr *rta = (struct rtattr *)(((char *)nlh) + NLMSG_ALIGN(nlh->nlmsg_len));
-    rta->rta_type = IFA_LOCAL;
-    rta->rta_len = RTA_LENGTH(addr_len);
-    memcpy(RTA_DATA(rta), addr_buf, addr_len);
-    free(addr_buf);
-
-    nlh->nlmsg_len = NLMSG_ALIGN(nlh->nlmsg_len) + RTA_LENGTH(addr_len);
-
-    //If IPv6 and adding, disable DAD + set deprecated IP and adjust header len
-    if (ifa->ifa_family == AF_INET6 && operation == IP_OP_ADD) {
-
-        // NODAD Flag
-        {
-            struct rtattr *rta_flags = (struct rtattr *)(((char *)nlh) + NLMSG_ALIGN(nlh->nlmsg_len));
-
-            const uint32_t flags = IFA_F_NODAD;
-
-            rta_flags->rta_type = IFA_FLAGS;
-            rta_flags->rta_len  = RTA_LENGTH(sizeof(uint32_t));
-
-            memcpy(RTA_DATA(rta_flags), &flags, sizeof(uint32_t));
-
-            nlh->nlmsg_len =
-                NLMSG_ALIGN(nlh->nlmsg_len) + RTA_LENGTH(sizeof(uint32_t));
-        }
-
-        {
-            struct ifa_cacheinfo ci;
-            memset(&ci, 0, sizeof(ci));
-
-            ci.ifa_prefered = 0;            //"deprecated" IP
-            ci.ifa_valid    = 0xFFFFFFFF;   //with infinite life
-
-            struct rtattr *rta_ci = (struct rtattr *)(((char *)nlh) + NLMSG_ALIGN(nlh->nlmsg_len));
-
-            rta_ci->rta_type = IFA_CACHEINFO;
-            rta_ci->rta_len  = RTA_LENGTH(sizeof(ci));
-
-            memcpy(RTA_DATA(rta_ci), &ci, sizeof(ci));
-
-            nlh->nlmsg_len =
-                NLMSG_ALIGN(nlh->nlmsg_len) + RTA_LENGTH(sizeof(ci));
-        }
-    }
-
-    // Prepare to send
-    struct sockaddr_nl kernel = {
-        .nl_family = AF_NETLINK
-    };
-
-    struct iovec iov = {
-        .iov_base = nlh,
-        .iov_len = nlh->nlmsg_len
-    };
-
-    const struct msghdr msg = {
+    struct sockaddr_nl kernel = { .nl_family = AF_NETLINK };
+    struct iovec iov = { .iov_base = nlh, .iov_len = nlh->nlmsg_len };
+    struct msghdr msg = {
         .msg_name = &kernel,
         .msg_namelen = sizeof(kernel),
         .msg_iov = &iov,
         .msg_iovlen = 1
     };
 
-    // Send message
     if (sendmsg(sock, &msg, 0) < 0) {
-        perror("Error while sending the message to Netlink");
+        perror("Error sending Netlink message");
         close(sock);
         return -1;
     }
 
-    // "Control" ACK
-    const ssize_t len = recv(sock, buf, sizeof(buf), 0);
+    char buf[BUFFER_SIZE] = {0};
+    ssize_t len = recv(sock, buf, sizeof(buf), 0);
+    close(sock);
+
     if (len < 0) {
-        perror("Error while receiving the message to Netlink");
-        close(sock);
+        perror("Error receiving Netlink ACK");
         return -1;
     }
 
-    struct nlmsghdr *h = (struct nlmsghdr*) buf;
-    //Should be all the time true (because of ACK asked)
+    struct nlmsghdr *h = (struct nlmsghdr*)buf;
     if (h->nlmsg_type == NLMSG_ERROR) {
-        const struct nlmsgerr *err = NLMSG_DATA(h);
-        //True error ?
-        if (err->error) {
-            const char* op_name = (operation == IP_OP_ADD) ? "adding" : "removing";
-            fprintf(stderr, "Error while %s IP: %s\n", op_name, strerror(-err->error));
-            close(sock);
+        struct nlmsgerr *err = (struct nlmsgerr*)NLMSG_DATA(h);
+        if (err->error != 0) {
+            // Ignore ENOENT / EEXIST lors de la suppression si déjà absent
+            if (err->error == -EEXIST || err->error == -ENOENT) return 0;
+            fprintf(stderr, "Netlink error: %s\n", strerror(-err->error));
             return -1;
         }
     }
-
-    close(sock);
     return 0;
 }
 
-int add_ip(const char* ifName, const char* ip_str) {
-    return modify_ip_on_interface(ifName, ip_str, IP_OP_ADD);
+/*
+ Add or remove a static route to the IP on the host.
+*/
+int modify_route(const char *ifName, const char *ip_str, ip_operation_t op) {
+    char buf[BUFFER_SIZE] = {0};
+    struct nlmsghdr *nlh = (struct nlmsghdr*)buf;
+    struct rtmsg *rtm = (struct rtmsg*)(buf + sizeof(struct nlmsghdr));
+
+    int is_v6 = (strchr(ip_str, ':') != NULL);
+    int family = is_v6 ? AF_INET6 : AF_INET;
+    unsigned int ifindex = if_nametoindex(ifName);
+
+    if (ifindex == 0) return -1;
+
+    nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
+    nlh->nlmsg_type = (op == IP_OP_ADD) ? RTM_NEWROUTE : RTM_DELROUTE;
+    nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+    if (op == IP_OP_ADD) nlh->nlmsg_flags |= NLM_F_CREATE | NLM_F_REPLACE;
+
+    rtm->rtm_family = family;
+    rtm->rtm_dst_len = is_v6 ? 128 : 32;
+    rtm->rtm_table = RT_TABLE_MAIN;
+    rtm->rtm_protocol = RTPROT_BOOT;
+    rtm->rtm_scope = RT_SCOPE_UNIVERSE;
+    rtm->rtm_type = RTN_UNICAST;
+
+    // RTA_DST Target IP
+    struct rtattr *rta = (struct rtattr*)(((char*)nlh) + NLMSG_ALIGN(nlh->nlmsg_len));
+    rta->rta_type = RTA_DST;
+    
+    if (is_v6) {
+        rta->rta_len = RTA_LENGTH(sizeof(struct in6_addr));
+        inet_pton(AF_INET6, ip_str, RTA_DATA(rta));
+    } else {
+        rta->rta_len = RTA_LENGTH(sizeof(struct in_addr));
+        inet_pton(AF_INET, ip_str, RTA_DATA(rta));
+    }
+    nlh->nlmsg_len = NLMSG_ALIGN(nlh->nlmsg_len) + rta->rta_len;
+
+    // RTA_OIF = device monitored by Wakupator
+    rta = (struct rtattr*)(((char*)nlh) + NLMSG_ALIGN(nlh->nlmsg_len));
+    rta->rta_type = RTA_OIF;
+    rta->rta_len = RTA_LENGTH(sizeof(unsigned int));
+    memcpy(RTA_DATA(rta), &ifindex, sizeof(unsigned int));
+    nlh->nlmsg_len = NLMSG_ALIGN(nlh->nlmsg_len) + rta->rta_len;
+
+    return nl_talk(nlh);
+}
+/*
+  Add or remove a static neigh. Can set the host to be proxy for this neigh or not.
+*/
+int modify_neighbor(const char *ifName, const char *ip_str, ip_operation_t op, int is_proxy) {
+    char buf[BUFFER_SIZE] = {0};
+    struct nlmsghdr *nlh = (struct nlmsghdr*)buf;
+    struct ndmsg *ndm = (struct ndmsg*)(buf + sizeof(struct nlmsghdr));
+
+    int is_v6 = (strchr(ip_str, ':') != NULL);
+    int family = is_v6 ? AF_INET6 : AF_INET;
+    unsigned int ifindex = if_nametoindex(ifName);
+
+    if (ifindex == 0) return -1;
+
+    nlh->nlmsg_len = NLMSG_LENGTH(sizeof(struct ndmsg));
+    nlh->nlmsg_type = (op == IP_OP_ADD) ? RTM_NEWNEIGH : RTM_DELNEIGH;
+    nlh->nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+    if (op == IP_OP_ADD) nlh->nlmsg_flags |= NLM_F_CREATE | NLM_F_REPLACE;
+
+    ndm->ndm_family = family;
+    ndm->ndm_ifindex = ifindex;
+    
+    if (is_proxy) {
+        ndm->ndm_flags = NTF_PROXY;
+        ndm->ndm_state = NUD_NONE;
+    } else {
+        ndm->ndm_flags = 0;
+        ndm->ndm_state = NUD_PERMANENT; // No NS/ARP
+    }
+
+    // NDA_DST
+    struct rtattr *rta = (struct rtattr*)(((char*)nlh) + NLMSG_ALIGN(nlh->nlmsg_len));
+    rta->rta_type = NDA_DST;
+    if (is_v6) {
+        rta->rta_len = RTA_LENGTH(sizeof(struct in6_addr));
+        inet_pton(AF_INET6, ip_str, RTA_DATA(rta));
+    } else {
+        rta->rta_len = RTA_LENGTH(sizeof(struct in_addr));
+        inet_pton(AF_INET, ip_str, RTA_DATA(rta));
+    }
+    nlh->nlmsg_len = NLMSG_ALIGN(nlh->nlmsg_len) + rta->rta_len;
+
+    // NDA_LLADDR
+    if (!is_proxy && op == IP_OP_ADD) {
+        rta = (struct rtattr*)(((char*)nlh) + NLMSG_ALIGN(nlh->nlmsg_len));
+        rta->rta_type = NDA_LLADDR;
+        rta->rta_len = RTA_LENGTH(6);
+        memset(RTA_DATA(rta), 0, 6); //00:00:00:00:00:00
+        nlh->nlmsg_len = NLMSG_ALIGN(nlh->nlmsg_len) + rta->rta_len;
+    }
+
+    return nl_talk(nlh);
 }
 
-int remove_ip(const char* ifName, const char* ip_str){
-    return modify_ip_on_interface(ifName, ip_str, IP_OP_REMOVE);
+int add_ip(const char* ifName, const char* ip_str) {
+
+    if (modify_route(ifName, ip_str, IP_OP_ADD) != 0) return -1;
+
+    // Static neigh NUD_PERMANENT
+    if (modify_neighbor(ifName, ip_str, IP_OP_ADD, 0) != 0) return -1;
+
+    // Proxy ARP/NDP 
+    if (modify_neighbor(ifName, ip_str, IP_OP_ADD, 1) != 0) return -1;
+
+    return 0;
+}
+
+int remove_ip(const char* ifName, const char* ip_str) {
+    modify_neighbor(ifName, ip_str, IP_OP_REMOVE, 1);
+    modify_neighbor(ifName, ip_str, IP_OP_REMOVE, 0);
+    modify_route(ifName, ip_str, IP_OP_REMOVE);
+    return 0;
 }
 
 int check_ipv4_exists(const char *ip_str, ip_search_result_t *result) {

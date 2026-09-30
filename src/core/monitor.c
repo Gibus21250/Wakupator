@@ -363,7 +363,6 @@ void spoof_client_ips(const manager *mng, const client *cl)
 {
     //Assign IP of the client on the host
     for (int j = 0; j < cl->countIp; ++j) {
-        //TODO add Ip to the custom veth
         add_ip(mng->ifName, cl->ipPortInfo[j].ipStr);
     }
 }
@@ -371,7 +370,6 @@ void spoof_client_ips(const manager *mng, const client *cl)
 void remove_client_ips(const manager *mng, const client *cl)
 {
     for (int i = 0; i < cl->countIp; ++i) {
-        //TODO create a new virtual interface per client (to improve visibility)
         remove_ip(mng->ifName, cl->ipPortInfo[i].ipStr);
     }
 }
