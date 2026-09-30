@@ -5,9 +5,6 @@ scratch/*
 
 compile_commands.json
 
-# Prerequisites
-*.d
-
 # Object files
 *.o
 *.ko
