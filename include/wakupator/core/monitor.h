@@ -15,7 +15,7 @@ typedef struct main_monitor_args {
 
 void *main_client_monitoring(void* args);
 
-int create_raw_filtered_socket(const ip_port_info *ipPortInfo);
+int create_raw_filtered_socket(const ip_port_info *ipPortInfo, const manager *manager);
 
 int create_raw_socket_arp_ns(const char macStr[18]);
 

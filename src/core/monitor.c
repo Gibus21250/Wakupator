@@ -82,7 +82,7 @@ void *main_client_monitoring(void* args)
         if (info->portCount == 0)
             continue;
 
-        const int sock = create_raw_filtered_socket(info);
+        const int sock = create_raw_filtered_socket(info, manager);
 
         if(sock == -1) //Error
         {
@@ -434,7 +434,7 @@ int create_raw_socket_arp_ns(const char macStr[18])
     return rawSocket;
 }
 
-int create_raw_filtered_socket(const ip_port_info *ipPortInfo)
+int create_raw_filtered_socket(const ip_port_info *ipPortInfo, const manager *manager)
 {
 
     //Generate and prepare BPF asm for the kernel
@@ -444,6 +444,18 @@ int create_raw_filtered_socket(const ip_port_info *ipPortInfo)
 
     if(rawSocket == -1)
         return -1;
+
+    struct sockaddr_ll addr = {
+        .sll_family   = AF_PACKET,
+        .sll_protocol = htons(etherType),
+        .sll_ifindex  = manager->ifIndex,
+    };
+
+    if(bind(rawSocket, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+    {
+        log_error("Error while binding the raw socket to the network interface");
+        close(rawSocket);
+    }
 
     const struct sock_fprog bpf = create_bpf_filter(ipPortInfo);
 
