@@ -211,7 +211,7 @@ int wakupator_main(const int argc, char **argv)
     //------- PARSING OK -------
 
     //------- PRINT START INFO -------
-    log_info("Starting Wakupator...");
+    log_info("Starting Wakupator...\n");
 
     if (signal(SIGINT, handle_signal) == SIG_ERR) {
         log_fatal("Error while setup signal handler.\n");
