@@ -234,8 +234,6 @@ void *main_client_monitoring(void* args)
 
             //----------- traffic has been caught ------------
 
-            remove_client_ips(manager, &cl);
-
             clock_gettime(CLOCK_MONOTONIC, &end);
 
             timeElapsed = (uint64_t) (end.tv_sec - start.tv_sec);
@@ -258,6 +256,7 @@ void *main_client_monitoring(void* args)
             //Other "real" traffic monitored
             else
             {
+
                 log_info("%s: traffic detected.\n", clientHeader);
 
                 //Print packet Info
@@ -340,6 +339,7 @@ void *main_client_monitoring(void* args)
 
         }//Monitoring loop
 
+        remove_client_ips(manager, &cl);
     }
 
     // --------------------------------------- Cleaning all resources ------------------------------------------------
