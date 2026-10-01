@@ -438,16 +438,14 @@ int create_raw_filtered_socket(const ip_port_info *ipPortInfo, const manager *ma
 {
 
     //Generate and prepare BPF asm for the kernel
-    const uint16_t etherType = ipPortInfo->ipFormat == AF_INET ? ETH_P_IP : ETH_P_IPV6;
-
-    const int rawSocket = socket(PF_PACKET, SOCK_RAW, htons(etherType));
+    const int rawSocket = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 
     if(rawSocket == -1)
         return -1;
 
     struct sockaddr_ll addr = {
         .sll_family   = AF_PACKET,
-        .sll_protocol = htons(etherType),
+        .sll_protocol = htons(ETH_P_ALL),
         .sll_ifindex  = manager->ifIndex,
     };
 
@@ -455,6 +453,7 @@ int create_raw_filtered_socket(const ip_port_info *ipPortInfo, const manager *ma
     {
         log_error("Error while binding the raw socket to the network interface");
         close(rawSocket);
+        return -1;
     }
 
     const struct sock_fprog bpf = create_bpf_filter(ipPortInfo);
@@ -519,7 +518,7 @@ struct sock_fprog create_bpf_filter(const ip_port_info *ipPortInfo)
     const uint16_t etherType = ipPortInfo->ipFormat == AF_INET ? ETH_P_IP : ETH_P_IPV6;
 
     uint32_t codeSize = 0;
-    //codeSize = filter_ether(bpf_code, codeSize, etherType);
+    codeSize = filter_ether(bpf_code, codeSize, etherType);
 
     if(etherType == ETH_P_IP)
         codeSize = filter_ipv4(bpf_code, codeSize, ipRaw[0], 14);
