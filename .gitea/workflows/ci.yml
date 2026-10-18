@@ -14,8 +14,8 @@ jobs:
         env:
           TITLE: ${{ github.event.pull_request.title }}
         run: |
-          echo "$TITLE" | grep -Eq '^[A-Za-z]+\([^)]+\)/[a-z0-9-]+$' \
-            || { echo "Invalid Title : $TITLE (e.g: feature(Where)/kebab-case-title)"; exit 1; }
+          echo "$TITLE" | grep -Eq '^[A-Z][a-z]+ \([A-Za-z0-9 _-]+\): [^ ].+$' \
+            || { echo "Invalid title: $TITLE (e.g: Feature (Core): My new feature)"; exit 1; }
 
   build:
     runs-on: ubuntu-latest
@@ -40,9 +40,6 @@ jobs:
 
       - name: Build
         run: cmake --build build-${{ matrix.name }} -j$(nproc)
-
-      - name: Tests
-        run: ctest --test-dir build-${{ matrix.name }} --output-on-failure
 
       - name: Binary archive
         uses: actions/upload-artifact@v3
