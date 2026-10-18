@@ -1,0 +1,60 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pr-title:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Title format verification
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "$TITLE" | grep -Eq '^[A-Z][a-z]+ \([A-Za-z0-9 _-]+\): [^ ].+$' \
+            || { echo "Invalid title: $TITLE (e.g: Feature (Core): My new feature)"; exit 1; }
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86_64
+            toolchain: ""
+          - name: aarch64
+            toolchain: "cmake/toolchains/aarch64-linux-gnu.cmake"
+
+    name: build-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross toolchain
+        run: |
+          if ! command -v aarch64-linux-gnu-gcc >/dev/null || ! command -v qemu-aarch64 >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user
+          fi
+
+      - name: Configure
+        run: |
+          ARGS=()
+          if [ -n "${{ matrix.toolchain }}" ]; then
+            ARGS+=("-DCMAKE_TOOLCHAIN_FILE=$(pwd)/${{ matrix.toolchain }}")
+          fi
+          cmake -B build-${{ matrix.name }} \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS="-Wall -Wextra" \
+            "${ARGS[@]}"
+
+      - name: Build
+        run: cmake --build build-${{ matrix.name }} -j$(nproc)
+
+      - name: Binary archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: wakupator-${{ matrix.name }}
+          path: build-${{ matrix.name }}/wakupator
