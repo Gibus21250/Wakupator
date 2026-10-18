@@ -1,0 +1,114 @@
+name: Release
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: x86_64
+            toolchain: ""
+          - name: aarch64
+            toolchain: "cmake/toolchains/aarch64-linux-gnu.cmake"
+
+    name: build-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross toolchain if missing
+        run: |
+          if ! command -v aarch64-linux-gnu-gcc >/dev/null || ! command -v qemu-aarch64 >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user
+          fi
+
+      - name: Configure and build
+        run: |
+          ARGS=()
+          if [ -n "${{ matrix.toolchain }}" ]; then
+            ARGS+=("-DCMAKE_TOOLCHAIN_FILE=$(pwd)/${{ matrix.toolchain }}")
+          fi
+          cmake -B build -DCMAKE_BUILD_TYPE=Release "${ARGS[@]}"
+          cmake --build build -j$(nproc)
+
+      - name: Tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          tar -czf dist/wakupator-${{ github.ref_name }}-linux-${{ matrix.name }}.tar.gz \
+            -C build wakupator
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.name }}
+          path: dist/*.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Checksums
+        run: |
+          mkdir -p dist
+          find artifacts -name '*.tar.gz' -exec cp {} dist/ \;
+          cd dist && sha256sum *.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Draft release notes
+        run: |
+          {
+            echo "## Resume"
+            echo
+            echo "<!-- FILL -->"
+            echo
+            echo "## Changements"
+            bash scripts/release-notes.sh
+            echo
+            echo "## Checksums"
+            echo '```'
+            cat dist/SHA256SUMS
+            echo '```'
+          } > notes.md
+
+      - name: Create draft release (Gitea)
+        if: github.server_url != 'https://github.com'
+        env:
+          TOKEN: ${{ github.token }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+        run: |
+          BODY=$(jq -n --arg tag "${{ github.ref_name }}" --rawfile notes notes.md \
+            '{tag_name:$tag, name:$tag, body:$notes, draft:true}')
+          ID=$(curl -fsS -X POST "$API/releases" \
+            -H "Authorization: token $TOKEN" \
+            -H "Content-Type: application/json" -d "$BODY" | jq -r .id)
+          for f in dist/*; do
+            curl -fsS -X POST "$API/releases/$ID/assets?name=$(basename "$f")" \
+              -H "Authorization: token $TOKEN" -F "attachment=@$f"
+          done
+
+      - name: Create draft release (GitHub)
+        if: github.server_url == 'https://github.com'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --draft --title "${{ github.ref_name }}" \
+            --notes-file notes.md dist/*
