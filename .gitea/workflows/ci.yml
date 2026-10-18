@@ -1,0 +1,51 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pr-title:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Title format verification
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "$TITLE" | grep -Eq '^[A-Za-z]+\([^)]+\)/[a-z0-9-]+$' \
+            || { echo "Invalid Title : $TITLE (e.g: feature(Where)/kebab-case-title)"; exit 1; }
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: x86_64
+            toolchain: ""
+          - name: aarch64
+            toolchain: "-DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/toolchains/aarch64-linux-gnu.cmake"
+    name: build-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: |
+          cmake -B build-${{ matrix.name }} \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS="-Wall -Wextra" \
+            ${{ matrix.toolchain }}
+
+      - name: Build
+        run: cmake --build build-${{ matrix.name }} -j$(nproc)
+
+      - name: Tests
+        run: ctest --test-dir build-${{ matrix.name }} --output-on-failure
+
+      - name: Binary archive
+        uses: actions/upload-artifact@v3
+        with:
+          name: wakupator-${{ matrix.name }}
+          path: build-${{ matrix.name }}/wakupator

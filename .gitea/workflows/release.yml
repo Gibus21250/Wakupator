@@ -1,0 +1,64 @@
+name: Release
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: x86_64
+            toolchain: ""
+          - name: aarch64
+            toolchain: "-DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/toolchains/aarch64-linux-gnu.cmake"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.toolchain }}
+          cmake --build build -j$(nproc)
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          tar -czf dist/wakupator-${{ github.ref_name }}-linux-${{ matrix.name }}.tar.gz \
+            -C build wakupator
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: dist-${{ matrix.name }}
+          path: dist/*.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v3
+        with:
+          path: dist
+
+      - name: Notes de release
+        run: bash scripts/release-notes.sh > notes.md
+
+      - name: Créer la release (brouillon)
+        env:
+          TOKEN: ${{ github.token }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+        run: |
+          BODY=$(jq -n --arg tag "${{ github.ref_name }}" --rawfile notes notes.md \
+            '{tag_name:$tag, name:$tag, body:$notes, draft:true}')
+          ID=$(curl -fsS -X POST "$API/releases" \
+            -H "Authorization: token $TOKEN" \
+            -H "Content-Type: application/json" -d "$BODY" | jq -r .id)
+          for f in dist/*/*.tar.gz; do
+            curl -fsS -X POST "$API/releases/$ID/assets?name=$(basename $f)" \
+              -H "Authorization: token $TOKEN" -F "attachment=@$f"
+          done
