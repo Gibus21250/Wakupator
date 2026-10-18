@@ -54,7 +54,7 @@ jobs:
         run: cmake --build build-${{ matrix.name }} -j$(nproc)
 
       - name: Binary archive
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: wakupator-${{ matrix.name }}
           path: build-${{ matrix.name }}/wakupator
