@@ -32,13 +32,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Debug
-        run: |
-          pwd
-          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-          ls -la cmake/toolchains/ || echo "dossier toolchains absent du checkout"
-
-
       - name: Configure
         run: |
           ARGS=()
