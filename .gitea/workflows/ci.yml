@@ -26,17 +26,29 @@ jobs:
           - name: x86_64
             toolchain: ""
           - name: aarch64
-            toolchain: "-DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/cmake/toolchains/aarch64-linux-gnu.cmake"
+            toolchain: "cmake/toolchains/aarch64-linux-gnu.cmake"
+
     name: build-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Debug
+        run: |
+          pwd
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          ls -la cmake/toolchains/ || echo "dossier toolchains absent du checkout"
+
+
       - name: Configure
         run: |
+          ARGS=()
+          if [ -n "${{ matrix.toolchain }}" ]; then
+            ARGS+=("-DCMAKE_TOOLCHAIN_FILE=$(pwd)/${{ matrix.toolchain }}")
+          fi
           cmake -B build-${{ matrix.name }} \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_FLAGS="-Wall -Wextra" \
-            ${{ matrix.toolchain }}
+            "${ARGS[@]}"
 
       - name: Build
         run: cmake --build build-${{ matrix.name }} -j$(nproc)
