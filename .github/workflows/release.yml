@@ -79,7 +79,7 @@ jobs:
             echo
             echo "<!-- FILL -->"
             echo
-            echo "## Changements"
+            echo "## Changelog"
             bash scripts/release-notes.sh
             echo
             echo "## Checksums"

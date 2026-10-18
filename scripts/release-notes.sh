@@ -8,6 +8,9 @@ git log --first-parent --no-merges --pretty=%s $RANGE \
 | sed -nE 's/^([A-Za-z]+) \(([^)]*)\): (.*) \(#([0-9]+)\)$/\1|\2|\3|\4/p' \
 | sort -t'|' -k1,1 -k2,2 \
 | awk -F'|' '
-    $1 != last { printf "\n### %s\n", $1; last = $1 }
-    { printf "- **%s** : %s (#%s)\n", $2, $3, $4 }
+    $1 != last {
+        t = tolower($1)
+        h = (t=="feature") ? "Features" : (t=="fix") ? "Bug fixes" : $1
+        printf "\n### %s\n", h; last = $1
+    }
 '
