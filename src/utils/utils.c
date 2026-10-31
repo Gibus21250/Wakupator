@@ -10,7 +10,11 @@
 
 #include "wakupator/utils/utils.h"
 
+#include <errno.h>
 #include <stdlib.h>
+#include <time.h>
+#include <asm-generic/errno.h>
+#include <net/if_arp.h>
 
 int init_ip_socket(const char *ip, const int port, const int sock_type, const int protocol, struct sockaddr_storage* store_addr_info, int* sockaddr_size)
 {
@@ -207,4 +211,91 @@ void format_duration_hms(uint64_t seconds, char *buf, const size_t buf_size)
                  mins, secs);
     else
         snprintf(buf, buf_size, "%lus", secs);
+}
+static uint16_t read_be16(const unsigned char *p)
+{
+    return ((uint16_t)p[0] << 8) | p[1];
+}
+
+static void print_mac(const unsigned char *mac, size_t len)
+{
+    for (size_t i = 0; i < len; ++i)
+        printf("%s%02x", i ? ":" : "", mac[i]);
+}
+
+static void print_ipv4(const unsigned char *ip)
+{
+    printf("%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+}
+
+void print_arp_info(const unsigned char *buf, const size_t buf_size)
+{
+    const unsigned char *p = (const unsigned char *)buf;
+
+    if (!p || buf_size < 14)
+        return;
+
+    uint16_t ether_type = read_be16(p + 12);
+    size_t offset = 14;
+
+    // VLAN 802.1Q / QinQ
+    while ((ether_type == 0x8100 || ether_type == 0x88a8) &&
+           buf_size >= offset + 4) {
+        ether_type = read_be16(p + offset + 2);
+        offset += 4;
+           }
+
+    if (ether_type != ETH_P_ARP || buf_size < offset + 8)
+        return;
+
+    const unsigned char *arp = p + offset;
+
+    uint16_t htype = read_be16(arp);
+    uint16_t ptype = read_be16(arp + 2);
+    uint8_t hlen = arp[4];
+    uint8_t plen = arp[5];
+    uint16_t opcode = read_be16(arp + 6);
+
+    size_t arpSize = 8u + 2u * ((size_t)hlen + plen);
+
+    if (buf_size < offset + arpSize ||
+        htype != ARPHRD_ETHER || hlen != 6 ||
+        ptype != ETH_P_IP || plen != 4)
+        return;
+
+    const unsigned char *sha = arp + 8;
+    const unsigned char *spa = sha + hlen;
+    const unsigned char *tha = spa + plen;
+    const unsigned char *tpa = tha + hlen;
+
+    // Ethernet
+    printf("ETH ");
+    print_mac(p + 6, 6);
+    printf(" -> ");
+    print_mac(p, 6);
+
+    // ARP
+    printf(" | ARP %s: ",
+           opcode == ARPOP_REQUEST ? "REQ" :
+           opcode == ARPOP_REPLY   ? "REP" : "???");
+
+    print_mac(sha, 6);
+    printf(" / ");
+    print_ipv4(spa);
+
+    printf(" -> ");
+    print_mac(tha, 6);
+    printf(" / ");
+    print_ipv4(tpa);
+
+    printf("\n");
+}
+
+
+
+int64_t now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }

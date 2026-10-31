@@ -10,7 +10,7 @@
 
 #include "wakupator/parser/parser.h"
 
-#include "wakupator/utils/net.h"
+#include "wakupator/net/net.h"
 
 wakupator_code create_client_from_json(const char *json_raw, client* client)
 {

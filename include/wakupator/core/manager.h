@@ -1,7 +1,5 @@
 #ifndef WAKUPATOR_MANAGER_H
 #define WAKUPATOR_MANAGER_H
-#include <stdint.h>
-#include <bits/pthreadtypes.h>
 #include <netinet/in.h>
 
 #include "client.h"
@@ -11,6 +9,11 @@ typedef struct client_thread_monitor_info {
     client cl;
     pthread_t thread;
 } thread_monitor_info;
+
+typedef struct mld_member_info {
+    struct in6_addr addr;
+    int count;
+} mld_member_info;
 
 typedef struct manager {
 
@@ -53,8 +56,7 @@ typedef struct manager {
 
 } manager;
 
-WAKUPATOR_CODE init_manager(manager *manager, const char* ifName);
-void destroy_manager(manager *mng_client);
+void notify_master_thread(manager *manager, wakupator_code *master_dst, wakupator_code code);
 
 wakupator_code init_manager(manager *manager, const char* if_name);
 void destroy_manager(manager *manager);

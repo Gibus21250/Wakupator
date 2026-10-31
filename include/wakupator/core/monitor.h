@@ -15,5 +15,7 @@ typedef struct main_monitor_args {
 
 void *main_client_monitoring(void* args);
 
+void setup_spoofing_for_client(manager* manager, const client *cl);
+void unset_spoofing_for_client(manager* manager, const client *cl);
 
 #endif //WAKUPATOR_MONITOR_H

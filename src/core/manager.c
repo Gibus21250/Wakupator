@@ -1,7 +1,6 @@
 #include "wakupator/core/manager.h"
 
 #include <pthread.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -9,21 +8,30 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <netpacket/packet.h>
 
 #include "wakupator/core/monitor.h"
 #include "wakupator/log/log.h"
-#include "wakupator/utils/net.h"
+#include "../../include/wakupator/net/net.h"
+#include "wakupator/utils/utils.h"
 
 #define BUFFER_GROW_STEP 4
 
-WAKUPATOR_CODE init_manager(manager *manager, const char* ifName)
+void notify_master_thread(manager *manager, wakupator_code *master_dst, const wakupator_code code)
 {
+    pthread_mutex_t *register_mutex = &manager->registering_mutex;
+    pthread_cond_t *register_cond = &manager->registering_cond;
+
+    pthread_mutex_lock(register_mutex);
+    *master_dst = code;
+    pthread_cond_signal(register_cond);
+    pthread_mutex_unlock(register_mutex);
+}
 
 wakupator_code init_manager(manager *manager, const char* if_name)
 {
 
-    //Create main raw socket (for sending WoL packets)
-    manager->mainRawSocket = socket(PF_PACKET, SOCK_RAW, 0);
+    LOG_DEBUG("Initializing manager.\n");
 
     //Create main raw socket (for sending WoL, ARP, NS/NA packets)
     manager->main_raw_socket = socket(PF_PACKET, SOCK_RAW, 0);
@@ -97,15 +105,27 @@ wakupator_code init_manager(manager *manager, const char* if_name)
     {
         manager->mld_socket = socket(AF_INET6, SOCK_DGRAM, 0);
 
-    //Buffer data
-    manager->count = 0;
-    manager->bufferSize = BUFFER_GROW_STEP;
+        if (manager->mld_socket == -1) {
+            close(manager->main_raw_socket);
+            return WK_MLD_SOCKET_CREATION_ERROR;
+        }
 
-    manager->clientThreadInfos = (thread_monitor_info*) malloc(BUFFER_GROW_STEP * sizeof(thread_monitor_info));
-    if(manager->clientThreadInfos == NULL)
-    {
-        close(manager->mainRawSocket);
-        return OUT_OF_MEMORY;
+        manager->mld_members = (mld_member_info*) malloc(BUFFER_GROW_STEP * sizeof(mld_member_info));
+        if(manager->mld_members == NULL)
+        {
+            close(manager->main_raw_socket);
+            close(manager->mld_socket);
+            free(manager->client_thread_infos);
+            return WK_OUT_OF_MEMORY;
+        }
+        manager->mld_count = 0;
+        manager->mld_capacity = BUFFER_GROW_STEP;
+    }
+    else {
+        manager->mld_socket = -1;
+        manager->mld_members = NULL;
+        manager->mld_count = 0;
+        manager->mld_capacity = 0;
     }
 
     // ------ Init mutex ------
@@ -155,8 +175,7 @@ wakupator_code init_manager(manager *manager, const char* if_name)
         pthread_cond_destroy(&manager->registering_cond);
         return WK_PIPE_CREATION_ERROR;
     }
-
-    log_debug("Manager successfully initialized.\n");
+    LOG_DEBUG("Manager successfully initialized.\n");
 
     return WK_OK;
 }
@@ -164,7 +183,7 @@ wakupator_code init_manager(manager *manager, const char* if_name)
 void destroy_manager(manager *manager)
 {
 
-    log_debug("Destroying manager\n");
+    LOG_DEBUG("Destroying manager\n");
 
     //Notify all thread to wake up
     const char placebo = '1';
@@ -200,7 +219,7 @@ void destroy_manager(manager *manager)
     close(manager->notify[1]);
     close(manager->main_raw_socket);
 
-    log_debug("Manager successfully destroyed\n");
+    LOG_DEBUG("Manager successfully destroyed\n");
 
 }
 
@@ -213,7 +232,7 @@ wakupator_code register_client(manager *manager, client *new_client)
     //Lock the manager struct
     pthread_mutex_lock(&manager->lock);
 
-    log_debug("Manager locked.\n");
+    LOG_DEBUG("Manager locked.\n");
 
     if (manager->has_ipv6 == 0)
     {
@@ -281,7 +300,7 @@ wakupator_code register_client(manager *manager, client *new_client)
         return WK_MANAGER_MONITOR_THREAD_CREATION_ERROR;
     }
 
-    log_debug("Client thread started mutex locked\n");
+    LOG_DEBUG("Client thread started mutex locked\n");
 
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
@@ -298,7 +317,7 @@ wakupator_code register_client(manager *manager, client *new_client)
         return WK_MANAGER_MONITOR_THREAD_INIT_TIMEOUT;
     }
 
-    log_debug("Client notify received.\n");
+    LOG_DEBUG("Client notify received.\n");
 
     //Check if no execution error during init phase of the child thread
     if(code != WK_OK)
@@ -310,7 +329,7 @@ wakupator_code register_client(manager *manager, client *new_client)
         return code;
     }
 
-    log_debug("Client Thread is OK.\n");
+    LOG_DEBUG("Client Thread is OK.\n");
 
     //Finally, everything is ok
     //Shallow copy of the client, the child thread is responsible for the struct
@@ -349,11 +368,142 @@ wakupator_code unregister_client(manager *manager, const char* str_mac)
     return WK_MANAGER_CLIENT_NOT_FOUND;
 }
 
-            mng_client->count--;
-            found = 1;
+wakupator_code add_mld_member(manager *manager, const struct in6_addr addr)
+{
+    if (!manager->has_ipv6)
+        return WK_MANAGER_IP6_NOT_AVAILABLE;
+
+    //ff02::1:ffXX:XXXX
+    struct in6_addr ns_mc_addr = {0};
+
+    ns_mc_addr.s6_addr[0] = 0xff;
+    ns_mc_addr.s6_addr[1] = 0x02;
+    ns_mc_addr.s6_addr[11] = 0x01;
+    ns_mc_addr.s6_addr[12] = 0xff;
+
+    ns_mc_addr.s6_addr[13] = addr.s6_addr[13];
+    ns_mc_addr.s6_addr[14] = addr.s6_addr[14];
+    ns_mc_addr.s6_addr[15] = addr.s6_addr[15];
+
+    pthread_mutex_lock(&manager->lock);
+
+    mld_member_info *mld_info = NULL;
+
+    //Check if we are already subscribed to this sn-multicast
+    for (uint32_t i = 0; i < manager->mld_count; ++i)
+    {
+        if (memcmp(&manager->mld_members[i].addr, &ns_mc_addr, sizeof(struct in6_addr)) == 0) {
+            mld_info = &manager->mld_members[i];
             break;
         }
     }
-    pthread_mutex_unlock(&mng_client->mainLock);
-    return found;
+
+    //Already subscribed, just increment the counter
+    if (mld_info != NULL) {
+        mld_info->count++;
+        LOG_DEBUG("Found a record for the IP\n");
+        pthread_mutex_unlock(&manager->lock);
+        return WK_OK;
+    }
+
+    //New subscription
+    if(manager->mld_count == manager->mld_capacity)
+    {
+        LOG_DEBUG("Increasing manager's MLD buffer size.\n");
+        mld_member_info *tmp = realloc(manager->mld_members, (manager->mld_capacity + BUFFER_GROW_STEP) * sizeof(mld_member_info));
+        if(tmp != NULL)
+        {
+            manager->mld_members = tmp;
+            manager->mld_capacity += BUFFER_GROW_STEP;
+            LOG_DEBUG("Increase MLD buffer size OK.\n");
+        } else {
+            pthread_mutex_unlock(&manager->lock);
+            return WK_OUT_OF_MEMORY;
+        }
+    }
+    struct ipv6_mreq mreq = {0};
+
+    memcpy(&mreq.ipv6mr_multiaddr, &ns_mc_addr, sizeof(struct in6_addr));
+    mreq.ipv6mr_interface = manager->if_index;
+
+    if (setsockopt(manager->mld_socket, IPPROTO_IPV6, IPV6_ADD_MEMBERSHIP, &mreq,sizeof(mreq)) < 0)
+    {
+        pthread_mutex_unlock(&manager->lock);
+        log_error("Failed to join IPv6 multicast group.\n");
+        return WK_MLD_ADDING_MEMBER_ERROR;
+    }
+
+    LOG_DEBUG("MLD record added.\n");
+    manager->mld_members[manager->mld_count].addr = ns_mc_addr;
+    manager->mld_members[manager->mld_count].count = 1;
+    manager->mld_count++;
+    pthread_mutex_unlock(&manager->lock);
+
+    return WK_OK;
+}
+
+wakupator_code remove_mld_member(manager *manager, const struct in6_addr addr)
+{
+    if (!manager->has_ipv6)
+        return WK_MANAGER_IP6_NOT_AVAILABLE;
+
+    struct in6_addr ns_mc_addr = {0};
+
+    ns_mc_addr.s6_addr[0] = 0xff;
+    ns_mc_addr.s6_addr[1] = 0x02;
+    ns_mc_addr.s6_addr[11] = 0x01;
+    ns_mc_addr.s6_addr[12] = 0xff;
+
+    ns_mc_addr.s6_addr[13] = addr.s6_addr[13];
+    ns_mc_addr.s6_addr[14] = addr.s6_addr[14];
+    ns_mc_addr.s6_addr[15] = addr.s6_addr[15];
+
+    pthread_mutex_lock(&manager->lock);
+
+    mld_member_info *mld_info = NULL;
+    uint32_t index = 0;
+
+    //Check if we are already subscribed to this sn-multicast
+    for (uint32_t i = 0; i < manager->mld_count; ++i)
+    {
+        if (memcmp(&manager->mld_members[i].addr, &ns_mc_addr, sizeof(struct in6_addr)) == 0) {
+            mld_info = &manager->mld_members[i];
+            index = i;
+            break;
+        }
+    }
+
+    if (mld_info != NULL) {
+
+        if (mld_info->count > 1) {
+            mld_info->count--;
+            LOG_DEBUG("MLD record more than one time, decreasing the counter.\n");
+        }
+        else //Remove the entry and mld data
+        {
+            struct ipv6_mreq mreq = {0};
+
+            memcpy(&mreq.ipv6mr_multiaddr, &ns_mc_addr, sizeof(struct in6_addr));
+            mreq.ipv6mr_interface = manager->if_index;
+
+            if (setsockopt(manager->mld_socket, IPPROTO_IPV6, IPV6_DROP_MEMBERSHIP, &mreq,sizeof(mreq)) < 0)
+            {
+                pthread_mutex_unlock(&manager->lock);
+                log_error("Failed to drop IPv6 multicast group.\n");
+                return WK_MLD_REMOVE_MEMBER_ERROR;
+            }
+
+            LOG_DEBUG("MLD record removed.\n");
+            //remove-swap
+            const uint32_t last = manager->mld_count - 1;
+            if (index != last) {
+                manager->mld_members[index] = manager->mld_members[last];
+            }
+            manager->mld_count--;
+        }
+    }
+
+    pthread_mutex_unlock(&manager->lock);
+    return WK_OK;
+
 }

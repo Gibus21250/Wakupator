@@ -16,6 +16,7 @@
 #include "wakupator/utils/utils.h"
 
 #include "wakupator/log/log.h"
+#include "wakupator/net/net.h"
 
 #define BUFFER_SIZE 4096
 int server_fd = -1;
@@ -290,7 +291,7 @@ int wakupator_main(const int argc, char **argv)
         const ssize_t size = read(client_fd, buffer, BUFFER_SIZE);
         if (size <= 0) {
             if (size == 0)
-                log_debug("Client disconnected before sending registration.\n");
+                LOG_DEBUG("Client disconnected before sending registration.\n");
             else
                 log_error("Error while reading client: %s\n", strerror(errno));
 
@@ -298,7 +299,7 @@ int wakupator_main(const int argc, char **argv)
             continue;
         }
 
-        log_debug("New registration received: %s\n", buffer);
+        LOG_DEBUG("New registration received: %s\n", buffer);
 
         client cl;
         const char *message;
@@ -313,7 +314,7 @@ int wakupator_main(const int argc, char **argv)
             continue;
         }
 
-        log_debug("Parsing OK\n");
+        LOG_DEBUG("Parsing to client OK\n");
 
         /*
          * Two steps monitoring:
