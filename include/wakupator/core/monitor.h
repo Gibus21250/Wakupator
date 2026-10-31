@@ -15,15 +15,5 @@ typedef struct main_monitor_args {
 
 void *main_client_monitoring(void* args);
 
-int create_raw_filtered_socket(const ip_port_info *ipPortInfo);
-
-int create_raw_socket_arp_ns(const char macStr[18]);
-
-struct sock_fprog create_bpf_filter(const ip_port_info *ipPortInfo);
-
-void spoof_client_ips(const manager *mng, const client *cl);
-void remove_client_ips(const manager *mng, const client *cl);
-
-int validate_client_ips(const client *cl);
 
 #endif //WAKUPATOR_MONITOR_H

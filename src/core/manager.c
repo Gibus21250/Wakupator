@@ -57,6 +57,17 @@ wakupator_code init_manager(manager *manager, const char* if_name)
 
     memcpy((void*) manager->if_mac_raw, ifr.ifr_hwaddr.sa_data, 6);
 
+    struct sockaddr_ll addr = {0};
+    addr.sll_family   = AF_PACKET;
+    addr.sll_protocol = htons(ETH_P_ALL);
+    addr.sll_ifindex  = manager->if_index;
+
+    if (bind(manager->main_raw_socket, (struct sockaddr *)&addr, sizeof(addr)) < 0)
+    {
+        close(manager->main_raw_socket);
+        return WK_RAW_SOCKET_BIND_ERROR;
+    }
+
     //Gather IPv6 Link Local IP if available
     if (get_ipv6_link_local(if_name, &manager->if_ipv6_link_local) != 0)
     {
@@ -82,6 +93,10 @@ wakupator_code init_manager(manager *manager, const char* if_name)
     manager->client_capacity = BUFFER_GROW_STEP;
     manager->client_count = 0;
 
+    if (manager->has_ipv6)
+    {
+        manager->mld_socket = socket(AF_INET6, SOCK_DGRAM, 0);
+
     //Buffer data
     manager->count = 0;
     manager->bufferSize = BUFFER_GROW_STEP;
@@ -97,14 +112,20 @@ wakupator_code init_manager(manager *manager, const char* if_name)
     if(pthread_mutex_init(&manager->lock, NULL) != 0)
     {
         free(manager->client_thread_infos);
+        free(manager->mld_members);
         close(manager->main_raw_socket);
+        if (manager->mld_socket != -1)
+            close(manager->mld_socket);
         return WK_MUTEX_CREATION_ERROR;
     }
 
     if(pthread_mutex_init(&manager->registering_mutex, NULL) != 0)
     {
         free(manager->client_thread_infos);
+        free(manager->mld_members);
         close(manager->main_raw_socket);
+        if (manager->mld_socket != -1)
+            close(manager->mld_socket);
         pthread_mutex_destroy(&manager->lock);
         return WK_MUTEX_CREATION_ERROR;
     }
@@ -112,7 +133,10 @@ wakupator_code init_manager(manager *manager, const char* if_name)
     if(pthread_cond_init(&manager->registering_cond, NULL) != 0)
     {
         free(manager->client_thread_infos);
+        free(manager->mld_members);
         close(manager->main_raw_socket);
+        if (manager->mld_socket != -1)
+            close(manager->mld_socket);
         pthread_mutex_destroy(&manager->lock);
         pthread_mutex_destroy(&manager->registering_mutex);
         return WK_MUTEX_CREATION_ERROR;
@@ -122,7 +146,10 @@ wakupator_code init_manager(manager *manager, const char* if_name)
     if(pipe(manager->notify) != 0)
     {
         free(manager->client_thread_infos);
+        free(manager->mld_members);
         close(manager->main_raw_socket);
+        if (manager->mld_socket != -1)
+            close(manager->mld_socket);
         pthread_mutex_destroy(&manager->lock);
         pthread_mutex_destroy(&manager->registering_mutex);
         pthread_cond_destroy(&manager->registering_cond);
@@ -158,6 +185,11 @@ void destroy_manager(manager *manager)
         log_info("All the client have been woken up.\n");
     }
     free(manager->client_thread_infos);
+    if (manager->has_ipv6)
+    {
+        free(manager->mld_members);
+        close(manager->mld_socket);
+    }
 
     pthread_mutex_destroy(&manager->lock);
     pthread_mutex_destroy(&manager->registering_mutex);
@@ -208,13 +240,13 @@ wakupator_code register_client(manager *manager, client *new_client)
     //If the buffer isn't big enough
     if(manager->client_count == manager->client_capacity)
     {
-        log_debug("Increasing manager's clients buffer size.");
+        LOG_DEBUG("Increasing manager's clients buffer size.\n");
         thread_monitor_info *tmp = realloc(manager->client_thread_infos, (manager->client_capacity + BUFFER_GROW_STEP) * sizeof(thread_monitor_info));
         if(tmp != NULL)
         {
-            log_debug("Increase buffer size OK.");
             manager->client_thread_infos = tmp;
             manager->client_capacity += BUFFER_GROW_STEP;
+            LOG_DEBUG("Increase client buffer size OK.\n");
         } else {
             pthread_mutex_unlock(&manager->lock);
             return WK_OUT_OF_MEMORY;
@@ -236,8 +268,8 @@ wakupator_code register_client(manager *manager, client *new_client)
 
 
     //Lock the child mutex first
-    log_debug("Register mutex locked\n");
     pthread_mutex_lock(register_mutex);
+    LOG_DEBUG("Register mutex locked\n");
     pthread_t child_thread;
 
     //Now we can start the child thread that going to monitor the client
@@ -259,7 +291,7 @@ wakupator_code register_client(manager *manager, client *new_client)
     //This call implicit atomically unlock the mutex, and main Lock it again after cond notified
     if(pthread_cond_timedwait(register_cond, register_mutex, &timeout))
     {
-        log_debug("Client thread timeout. Abort registering\n");
+        LOG_DEBUG("Client thread timeout. Abort registering\n");
         pthread_mutex_unlock(register_mutex);
         pthread_cancel(child_thread); //Tell the child thread to cleanly abort
         pthread_mutex_unlock(&manager->lock);
@@ -271,7 +303,7 @@ wakupator_code register_client(manager *manager, client *new_client)
     //Check if no execution error during init phase of the child thread
     if(code != WK_OK)
     {
-        log_debug("Error while initializing Client thread.\n");
+        LOG_DEBUG("Error while initializing Client thread.\n");
         pthread_mutex_unlock(register_mutex);
         pthread_join(child_thread, NULL);
         pthread_mutex_unlock(&manager->lock);

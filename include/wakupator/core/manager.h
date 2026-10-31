@@ -35,6 +35,10 @@ typedef struct manager {
         //IPv6
         struct in6_addr if_ipv6_link_local;           //IPv6 LL Address
         uint8_t has_ipv6;                             //Has IPv6
+        int mld_socket;                               //IPv6 DGRAM socket used to (un)subscribe MLD
+        mld_member_info *mld_members;                 //Array to keep traces of which multicast IPv6 are registered
+        uint32_t mld_capacity;                        //Capacity of the mld buffer
+        uint32_t mld_count;                           //Number of different multicast IPv6 subscribed
 
     // ------ Manually filled Data ------
 
@@ -58,5 +62,8 @@ void destroy_manager(manager *manager);
 wakupator_code register_client(manager *manager, client *new_client);
 wakupator_code unregister_client(manager *manager, const char* str_mac);
 
+// ------     MLD IPv6      ------
+wakupator_code add_mld_member(manager *manager, struct in6_addr addr);
+wakupator_code remove_mld_member(manager *manager, struct in6_addr addr);
 
 #endif //WAKUPATOR_MANAGER_H

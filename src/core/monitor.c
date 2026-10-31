@@ -2,26 +2,25 @@
 // Created by Nathan on 02/09/2024.
 //
 
+#include <netinet/if_ether.h>
 #include <malloc.h>
 #include <poll.h>
 #include <unistd.h>
 #include <netinet/in.h>
-#include <arpa/inet.h>
-#include <memory.h>
 #include <netpacket/packet.h>
 #include <net/if.h>
-#include <errno.h>
-
 #include <pthread.h>
 
 #include "wakupator/core/monitor.h"
 
-#include <stdlib.h>
 #include <threads.h>
 
 #include "wakupator/core/manager.h"
 
-#include "wakupator/utils/bpf.h"
+#include "wakupator/net/bpf.h"
+#include "wakupator/net/net.h"
+#include "wakupator/net/socket.h"
+
 #include "wakupator/utils/utils.h"
 
 #include "wakupator/log/log.h"
@@ -42,17 +41,7 @@ void *main_client_monitoring(void* args)
 
     log_debug("%s: init monitor thread.\n", clientHeader);
 
-    //Verify that all IP asked are not already assigned on the host
-    const int code = validate_client_ips(&cl);
 
-    if(code != OK)
-    {
-        pthread_mutex_lock(registerMutex);
-        *mainClientArgs.wakupator_code = code;
-        pthread_cond_signal(registerCond);
-        pthread_mutex_unlock(registerMutex);
-        return NULL;
-    }
 
     log_debug("%s: IP(s) provided can be spoofed.\n", clientHeader);
 
@@ -79,7 +68,7 @@ void *main_client_monitoring(void* args)
         if (info->portCount == 0)
             continue;
 
-        const int sock = create_raw_filtered_socket(info);
+        const int sock = create_raw_socket_filtered_ip_port(manager->if_index, info);
 
         if(sock == -1) //Error
         {
@@ -102,10 +91,10 @@ void *main_client_monitoring(void* args)
     }
 
     log_debug("%s: %d raw sockets created. (%d IP without ports provided)\n", clientHeader, nbSockCreated, cl.countIp - nbSockCreated);
+    const int sock = create_raw_socket_any_traffic_from_mac(cl.mac_raw);
 
     //Create a raw socket to detect activity from the target interface.
     //(ARP/NS and all others)
-    fds[nbSockCreated].fd = create_raw_socket_arp_ns(cl.macStr);
     fds[nbSockCreated].events = POLLIN;
     nbSockCreated++;
 
@@ -373,154 +362,6 @@ void remove_client_ips(const manager *mng, const client *cl)
     }
 }
 
-int validate_client_ips(const client *cl)
-{
-    for (int i = 0; i < cl->countIp; ++i)
-    {
-        ip_search_result_t result;
-        if (check_ip_exists(cl->ipPortInfo->ipStr, &result) == 1)
-        {
-            return MONITOR_IP_ALREADY_USED;
-        }
+
     }
-    return OK;
-}
-
-int create_raw_socket_arp_ns(const char macStr[18])
-{
-    const int rawSocket = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
-
-    if(rawSocket == -1)
-        return -1;
-
-    uint8_t macRaw[6];
-
-    if (str_to_raw_mac(macStr, macRaw))
-    {
-        log_error("Error while parsing the MAC address\n");
-        close(rawSocket);
-    }
-
-    struct sock_filter *bpf_code = calloc(10, sizeof(struct sock_filter));
-
-    if(bpf_code == NULL)
-    {
-        close(rawSocket);
-        log_error("Error while creating the BPF prog");
-        return -1;
-    }
-
-
-    uint32_t codeSize = 0;
-    codeSize = filter_mac(bpf_code, codeSize, macRaw);
-    bpf_code[codeSize++] = (struct sock_filter) BPF_STMT(BPF_RET + BPF_K, -1); // Accept
-
-    const struct sock_fprog bpf = {
-            .filter = bpf_code,
-            .len = codeSize
-    };
-
-    // Apply BPF filter to the socket
-    if (setsockopt(rawSocket, SOL_SOCKET, SO_ATTACH_FILTER, &bpf, sizeof(bpf)) < 0) {
-        log_error("Error while setting the BPF prog to the raw socket");
-        close(rawSocket);
-        free(bpf.filter);
-        return -1;
-    }
-
-    free(bpf.filter);
-
-    return rawSocket;
-}
-
-int create_raw_filtered_socket(const ip_port_info *ipPortInfo)
-{
-
-    //Generate and prepare BPF asm for the kernel
-    const uint16_t etherType = ipPortInfo->ipFormat == AF_INET ? ETH_P_IP : ETH_P_IPV6;
-
-    const int rawSocket = socket(PF_PACKET, SOCK_RAW, htons(etherType));
-
-    if(rawSocket == -1)
-        return -1;
-
-    const struct sock_fprog bpf = create_bpf_filter(ipPortInfo);
-
-    if(bpf.len == (unsigned short) -1)
-    {
-        log_error("Error while creating the BPF prog");
-        close(rawSocket);
-        return -1;
-    }
-
-    // Apply BPF filter to the socket
-    if (setsockopt(rawSocket, SOL_SOCKET, SO_ATTACH_FILTER, &bpf, sizeof(bpf)) < 0) {
-        log_error("Error while setting the BPF prog to the raw socket");
-        close(rawSocket);
-        free(bpf.filter);
-        return -1;
-    }
-
-    free(bpf.filter);
-
-    //Sometimes, the time between socket creation and applying the filter, can catch some packets
-    char buffer[128];
-    ssize_t len;
-
-    //Clear if necessary
-    while ((len = recv(rawSocket, buffer, sizeof(buffer), MSG_DONTWAIT)) > 0) {}
-
-    //Check if different error code returned
-    if (len < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-        log_error("Error while clearing the raw socket");
-        close(rawSocket);
-        return -1;
-    }
-
-    return rawSocket;
-}
-
-struct sock_fprog create_bpf_filter(const ip_port_info *ipPortInfo)
-{
-
-    struct sock_fprog res = {
-            .filter = NULL,
-            .len = -1
-    };
-
-
-    uint32_t ipRaw[4];
-    if(inet_pton((int) ipPortInfo->ipFormat, ipPortInfo->ipStr, ipRaw) != 1)
-    {
-        log_error("Error while parsing IP when creating the BPF filter\n", strerror(errno));
-        return res;
-    }
-
-    struct sock_filter *bpf_code = calloc(100, sizeof(struct sock_filter));
-
-    if(bpf_code == NULL)
-    {
-        return res;
-    }
-
-    const uint16_t etherType = ipPortInfo->ipFormat == AF_INET ? ETH_P_IP : ETH_P_IPV6;
-
-    uint32_t codeSize = 0;
-    //codeSize = filter_ether(bpf_code, codeSize, etherType);
-
-    if(etherType == ETH_P_IP)
-        codeSize = filter_ipv4(bpf_code, codeSize, ipRaw[0], 14);
-    else
-        codeSize = filter_ipv6(bpf_code, codeSize, ipRaw, 14);
-
-    codeSize = filter_protocol(bpf_code, codeSize, IPPROTO_TCP, ipPortInfo->ipFormat, 14);
-    codeSize = filter_ports(bpf_code, codeSize, ipPortInfo->ports, ipPortInfo->portCount, 14 + (ipPortInfo->ipFormat==AF_INET?20:40));
-
-    bpf_code[codeSize++] = (struct sock_filter) BPF_STMT(BPF_RET + BPF_K, -1); // Accept
-
-
-    res.filter = bpf_code;
-    res.len = codeSize;
-
-    return res;
 }
