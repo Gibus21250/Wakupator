@@ -17,43 +17,46 @@ typedef struct manager {
     // ------ Self filled Data ------
 
         //All clients infos
-        uint32_t bufferSize;                        //Size of the buffer
-        uint32_t count;                             //Number of client monitored identified by mac address
-        thread_monitor_info *clientThreadInfos;     //Array of all client thread info
-        pthread_mutex_t mainLock;                   //Lock used when manipulating the struct (add/remove client)
-        pthread_mutex_t registeringMutex;           //Mutex used by master and child thread when init the monitoring thread
-        pthread_cond_t registeringCond;             //Cond used by master and child thread when init the monitoring thread
-        int notify[2];                              //Pipe used to unlock all client's thread
+        uint32_t client_capacity;                    //Size of the client buffer
+        uint32_t client_count;                       //Number of client monitored identified by mac address
+        thread_monitor_info *client_thread_infos;    //Array of all client thread info
+
+        pthread_mutex_t lock;                        //Lock used when manipulating the struct
+        pthread_mutex_t registering_mutex;           //Mutex used by master and child thread when init the monitoring thread
+        pthread_cond_t registering_cond;             //Cond used by master and child thread when init the monitoring thread
+        int notify[2];                               //Pipe used to unlock all client's thread
 
         //Manager options
-        int mainRawSocket;                          //Raw socket used by threads to send packets
-        uint16_t ifIndex;                           //Index of the interface
-        const char *ifName;                         //Char* name of the interface
-        unsigned char ifMacRaw[6];                  //Raw mac address of the manager interface
+        int main_raw_socket;                         //Raw socket used by threads to send raw packets (WoL, arp, NS etc)
+        int if_index;                                //Index of the interface
+        const char *if_name;                         //Char* name of the interface
+        uint8_t if_mac_raw[6];                       //Raw mac address of the manager interface
 
         //IPv6
-        struct in6_addr ifIPv6LinkLocal;            //IPv6 LL Address
-        uint8_t hasIPv6;                            //Has IPv6
+        struct in6_addr if_ipv6_link_local;           //IPv6 LL Address
+        uint8_t has_ipv6;                             //Has IPv6
 
     // ------ Manually filled Data ------
 
     // Wake up parameters
-    uint8_t wolKeepClient;                      //What to do when the machine didn't seems to start after nbAttempt
-    uint16_t wolMaxAttempts;                    //Number of WoL attempt to wake up the machine
-    uint32_t wolDelay;                          //Time in seconds between each WoL attempt
+    uint8_t wol_keep_client;                      //What to do when the machine didn't seems to start after nbAttempt
+    uint16_t wol_max_attempts;                    //Number of WoL attempt to wake up the machine
+    uint32_t wol_delay;                           //Time in seconds between each WoL attempt
 
     // Shutdown parameters
-    uint32_t shutdownTimeout;                   //Timeout in seconds waiting the machine to shut down
-    uint32_t shutdownProbeInterval;             //Interval between each ARP/NS probe
+    uint32_t shutdown_timeout;                    //Timeout in seconds waiting the machine to shut down
+    uint32_t shutdown_probe_interval;             //Interval between each ARP/NS probe
 
 } manager;
 
 WAKUPATOR_CODE init_manager(manager *manager, const char* ifName);
 void destroy_manager(manager *mng_client);
 
-WAKUPATOR_CODE register_client(manager *manager, client *newClient);
-int unregister_client(manager *mng_client, const char* strMac);
+wakupator_code init_manager(manager *manager, const char* if_name);
+void destroy_manager(manager *manager);
 
-void start_monitoring(manager *mng_client, const char* macClient);
+wakupator_code register_client(manager *manager, client *new_client);
+wakupator_code unregister_client(manager *manager, const char* str_mac);
+
 
 #endif //WAKUPATOR_MANAGER_H

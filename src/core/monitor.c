@@ -31,17 +31,14 @@ void *main_client_monitoring(void* args)
 {
 
     //Shallow copy
-    const main_monitor_args mainClientArgs = *(main_monitor_args*) args;
-    manager *manager = mainClientArgs.manager;
+    const main_monitor_args main_client_args = *(main_monitor_args*) args;
+    manager *manager = main_client_args.manager;
 
-    pthread_mutex_t *registerMutex = &manager->registeringMutex;
-    pthread_cond_t *registerCond = &manager->registeringCond;
+    //Shallow copy of the client information
+    client cl = *main_client_args.client;
 
-    //Shallow copy of the client
-    client cl = *mainClientArgs.client;
-
-    char clientHeader[sizeof(cl.macStr) + sizeof(cl.name) + 16];
-    snprintf(clientHeader, sizeof(clientHeader),"Client %s (%s)", cl.name, cl.macStr);
+    char client_header[sizeof(cl.mac_str) + sizeof(cl.name) + 16];
+    snprintf(client_header, sizeof(client_header),"Client %s (%s)", cl.name, cl.mac_str);
 
     log_debug("%s: init monitor thread.\n", clientHeader);
 

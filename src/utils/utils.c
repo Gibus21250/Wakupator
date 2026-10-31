@@ -12,16 +12,16 @@
 
 #include <stdlib.h>
 
-int init_ip_socket(const char *ip, const int port, const int sockType, const int protocol, struct sockaddr_storage* storeAddrInfo, int* sockaddr_size)
+int init_ip_socket(const char *ip, const int port, const int sock_type, const int protocol, struct sockaddr_storage* store_addr_info, int* sockaddr_size)
 {
     const int opt = 1;
-    const int AF = (strchr(ip, ':') != NULL) ? AF_INET6 : AF_INET;
+    const int af = (strchr(ip, ':') != NULL) ? AF_INET6 : AF_INET;
 
     //Clear storeAddrInfo struct
-    memset(storeAddrInfo, 0, sizeof(struct sockaddr_storage));
+    memset(store_addr_info, 0, sizeof(struct sockaddr_storage));
 
     // Create the socket
-    const int sock = socket(AF, sockType, protocol);
+    const int sock = socket(af, sock_type, protocol);
 
     if (sock == -1) {
         return -1;
@@ -30,13 +30,13 @@ int init_ip_socket(const char *ip, const int port, const int sockType, const int
     // To avoid bind: Address already in use
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    if (AF == AF_INET) {
+    if (af == AF_INET) {
         // IPv4
-        struct sockaddr_in* saddr = (struct sockaddr_in*) storeAddrInfo;
-        saddr->sin_family = AF_INET;
-        saddr->sin_port = htons(port);
-        memset(&saddr->sin_zero, 0, sizeof(saddr->sin_zero));
-        if (inet_pton(AF_INET, ip, &(saddr->sin_addr)) != 1) {
+        struct sockaddr_in* in = (struct sockaddr_in*) store_addr_info;
+        in->sin_family = AF_INET;
+        in->sin_port = htons(port);
+        memset(&in->sin_zero, 0, sizeof(in->sin_zero));
+        if (inet_pton(AF_INET, ip, &(in->sin_addr)) != 1) {
             close(sock);
             return -1;
         }
@@ -44,12 +44,12 @@ int init_ip_socket(const char *ip, const int port, const int sockType, const int
 
     } else {
         // IPv6
-        struct sockaddr_in6 *saddr = (struct sockaddr_in6*) storeAddrInfo;
-        saddr->sin6_family = AF_INET6;
-        saddr->sin6_port = htons(port);
-        saddr->sin6_flowinfo = 0;
-        saddr->sin6_scope_id = 0;
-        if(inet_pton(AF_INET6, ip, &(saddr->sin6_addr)) != 1) {
+        struct sockaddr_in6 *in6 = (struct sockaddr_in6*) store_addr_info;
+        in6->sin6_family = AF_INET6;
+        in6->sin6_port = htons(port);
+        in6->sin6_flowinfo = 0;
+        in6->sin6_scope_id = 0;
+        if(inet_pton(AF_INET6, ip, &(in6->sin6_addr)) != 1) {
             close(sock);
             return -1;
         }
@@ -60,21 +60,21 @@ int init_ip_socket(const char *ip, const int port, const int sockType, const int
 }
 
 /**
- * Write L3 packet header information into a ASCII format
+ * Write L3 packet header information into an ASCII format
  * @return Heap allocated buffer
  */
 __attribute__((warn_unused_result))
-const char* print_ip_packet_info(const unsigned char *packetBuffer, ssize_t packetSize)
+const char* print_ip_packet_info(const unsigned char *packet_buffer, const ssize_t packet_size)
 {
 
-    const size_t MSG_SIZE = 512;
-    char* message = (char*) malloc(MSG_SIZE * sizeof (const char));
+    const size_t msg_size = 512;
+    char* message = (char*) malloc(msg_size * sizeof (const char));
 
     if (!message)
         return NULL;
 
-    if (packetSize < sizeof(struct ethhdr)) {
-        snprintf(message, MSG_SIZE, "Packet is too small. Unable to collect information. (%zd bytes)", packetSize);
+    if (packet_size < sizeof(struct ethhdr)) {
+        snprintf(message, msg_size, "Packet is too small. Unable to collect information. (%zd bytes)", packet_size);
         return message;
     }
 
@@ -84,16 +84,16 @@ const char* print_ip_packet_info(const unsigned char *packetBuffer, ssize_t pack
     uint16_t dst_port = 0;
     uint16_t src_port = 0;
 
-    const struct ethhdr *eth = (struct ethhdr *)packetBuffer;
+    const struct ethhdr *eth = (struct ethhdr *)packet_buffer;
     const uint16_t ether_type = ntohs(eth->h_proto);
 
     if (ether_type == ETH_P_IP)
     {
-        const struct iphdr *ip4 = (struct iphdr *)(packetBuffer + sizeof(struct ethhdr));
+        const struct iphdr *ip4 = (struct iphdr *)(packet_buffer + sizeof(struct ethhdr));
 
         if (ip4->protocol == IPPROTO_TCP)
         {
-            const struct tcphdr *tcp = (struct tcphdr *)(packetBuffer + sizeof(struct ethhdr) + (ip4->ihl * 4));
+            const struct tcphdr *tcp = (struct tcphdr *)(packet_buffer + sizeof(struct ethhdr) + (ip4->ihl * 4));
             dst_port = ntohs(tcp->dest);
             src_port = ntohs(tcp->source);
 
@@ -104,11 +104,11 @@ const char* print_ip_packet_info(const unsigned char *packetBuffer, ssize_t pack
     }
     else if (ether_type == ETH_P_IPV6)
     {
-        const struct ip6_hdr *ip6 = (struct ip6_hdr *)(packetBuffer + sizeof(struct ethhdr));
+        const struct ip6_hdr *ip6 = (struct ip6_hdr *)(packet_buffer + sizeof(struct ethhdr));
 
         if (ip6->ip6_nxt == IPPROTO_TCP)
         {
-            struct tcphdr *tcp = (struct tcphdr *)(packetBuffer + sizeof(struct ethhdr) + sizeof(struct ip6_hdr));
+            struct tcphdr *tcp = (struct tcphdr *)(packet_buffer + sizeof(struct ethhdr) + sizeof(struct ip6_hdr));
             dst_port = ntohs(tcp->dest);
             src_port = ntohs(tcp->source);
 
@@ -122,7 +122,7 @@ const char* print_ip_packet_info(const unsigned char *packetBuffer, ssize_t pack
         }
     }
 
-    snprintf(message, MSG_SIZE, "From %s:%u to %s:%u", src_ip_str, src_port, dst_ip_str, dst_port);
+    snprintf(message, msg_size, "From %s:%u to %s:%u", src_ip_str, src_port, dst_ip_str, dst_port);
 
     return message;
 
@@ -181,7 +181,7 @@ void print_packet_details_ipv6(const struct ethhdr *eth, const struct ip6_hdr *i
     printf("Urgent Pointer: %d\n", ntohs(tcp->urg_ptr));
 }
 
-void format_duration_hms(uint64_t seconds, char *buf, const size_t bufSize)
+void format_duration_hms(uint64_t seconds, char *buf, const size_t buf_size)
 {
 
     const unsigned long weeks = seconds / 604800;
@@ -194,17 +194,17 @@ void format_duration_hms(uint64_t seconds, char *buf, const size_t bufSize)
     const unsigned long secs  = seconds % 60;
 
     if (weeks)
-        snprintf(buf, bufSize, "%luw %lud %luh %lum %lus",
+        snprintf(buf, buf_size, "%luw %lud %luh %lum %lus",
                  weeks, days, hours, mins, secs);
     else if (days)
-        snprintf(buf, bufSize, "%lud %luh %lum %lus",
+        snprintf(buf, buf_size, "%lud %luh %lum %lus",
                  days, hours, mins, secs);
     else if (hours)
-        snprintf(buf, bufSize, "%luh %lum %lus",
+        snprintf(buf, buf_size, "%luh %lum %lus",
                  hours, mins, secs);
     else if (mins)
-        snprintf(buf, bufSize, "%lum %lus",
+        snprintf(buf, buf_size, "%lum %lus",
                  mins, secs);
     else
-        snprintf(buf, bufSize, "%lus", secs);
+        snprintf(buf, buf_size, "%lus", secs);
 }

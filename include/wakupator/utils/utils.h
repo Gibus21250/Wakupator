@@ -11,11 +11,11 @@
 
 /**
  * Init a socket, based on a char* ip (IPv4/IPv6), a port, and a type (STREAM or DTG), and fill the sockaddr_storage struct provided
- * @return The file descriptor of the socket
+ * @return The file descriptor of the socket, -1 if error
  */
-int init_ip_socket(const char *ip, int port, int sockType, int protocol, struct sockaddr_storage* storeAddrInfo, int* sockaddr_size);
+int init_ip_socket(const char *ip, int port, int sock_type, int protocol, struct sockaddr_storage* store_addr_info, int* sockaddr_size);
 void print_packet_details_ipv6(const struct ethhdr *eth, const struct ip6_hdr *ip6, const struct tcphdr *tcp);
-const char* print_ip_packet_info(const unsigned char *packetBuffer, ssize_t packetSize);
-void format_duration_hms(uint64_t seconds, char *buf, size_t bufSize);
+const char* print_ip_packet_info(const unsigned char *packet_buffer, ssize_t packet_size);
+void format_duration_hms(uint64_t seconds, char *buf, size_t buf_size);
 
 #endif //WAKUPATOR_UTILS_H
