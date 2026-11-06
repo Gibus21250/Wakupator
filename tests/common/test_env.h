@@ -34,3 +34,4 @@
 // unshare netns (+ userns if non-root). Create veth0<->veth1
 // Return 0, or -1. (-1 mean SKIP test).
 int wk_env_init(void);
+void wk_env_init_or_exit(void);

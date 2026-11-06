@@ -55,8 +55,10 @@ if(NOT WAKUPATOR_UNIT_ONLY)
     set_tests_properties(
             test_integ_arp_socket
             test_integ_ns_socket
+            test_integ_arp_flow
+            test_integ_nd_flow
             PROPERTIES
             TIMEOUT 15
-            SKIP_RETURN_CODE 3717
+            SKIP_RETURN_CODE 77
     )
 endif()

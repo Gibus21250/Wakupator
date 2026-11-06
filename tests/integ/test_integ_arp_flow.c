@@ -153,10 +153,8 @@ static void test_request_is_answered(void)
 
 int main(void)
 {
-    if (wk_env_init() < 0) {
-        fprintf(stderr, "SKIP: cannot create the network namespace\n");
-        return WK_SKIP_CODE;
-    }
+    wk_env_init_or_exit();
+
     ifidx = (int)if_nametoindex(WK_VETH_A);
     tx  = wk_open_tx(WK_VETH_B);
     cap = wk_open_rx(WK_VETH_B, ETH_P_ARP);

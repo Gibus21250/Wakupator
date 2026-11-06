@@ -45,6 +45,14 @@ jobs:
       - name: Build
         run: cmake --build build-${{ matrix.name }} -j$(nproc)
 
+      - name: Allow unprivileged user namespaces (if possible)
+        run: |
+          if sudo -n true 2>/dev/null; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          else
+            echo "no passwordless sudo, skipping sysctl"
+          fi
+
       - name: Tests
         run: ctest --test-dir build-${{ matrix.name }} --output-on-failure
 
@@ -71,13 +79,6 @@ jobs:
         with:
           path: artifacts
 
-      - name: Checksums
-        run: |
-          mkdir -p dist
-          find artifacts -name '*.tar.gz' -exec cp {} dist/ \;
-          cd dist && sha256sum *.tar.gz > SHA256SUMS
-          cat SHA256SUMS
-
       - name: Install git-cliff
         run: |
           if ! command -v git-cliff >/dev/null; then
@@ -97,10 +98,6 @@ jobs:
           echo "## Changelog"
           git cliff --latest --strip header
           echo
-          echo "## Checksums"
-          echo '```'
-          cat dist/SHA256SUMS
-          echo '```'
           } > notes.md
 
       - name: Create draft release (Gitea)

@@ -93,10 +93,8 @@ static void test_ns_filter(void)
 
 int main(void)
 {
-    if (wk_env_init() < 0) {
-        fprintf(stderr, "SKIP: cannot create the network namespace\n");
-        return WK_SKIP_CODE;
-    }
+    wk_env_init_or_exit();
+
     ifidx = (int) if_nametoindex(WK_VETH_A);
     tx = wk_open_tx(WK_VETH_B);
     WK_CHECK(ifidx > 0 && tx >= 0);

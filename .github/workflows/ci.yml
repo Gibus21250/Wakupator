@@ -47,14 +47,26 @@ jobs:
           ARGS=()
           if [ -n "${{ matrix.toolchain }}" ]; then
             ARGS+=("-DCMAKE_TOOLCHAIN_FILE=$(pwd)/${{ matrix.toolchain }}")
+            ARGS+=("-DWAKUPATOR_UNIT_ONLY=ON")
           fi
           cmake -B build-${{ matrix.name }} \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_FLAGS="-Wall -Wextra" \
+            -DWAKUPATOR_BUILD_TESTS=ON \
             "${ARGS[@]}"
 
       - name: Build
         run: cmake --build build-${{ matrix.name }} -j$(nproc)
+
+      - name: Allow unprivileged user namespaces (if possible)
+        run: |
+          if sudo -n true 2>/dev/null; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          else
+            echo "no passwordless sudo, skipping sysctl"
+          fi
+
+      - name: Tests
+        run: ctest --test-dir build-${{ matrix.name }} --output-on-failure --parallel
 
       - name: Binary archive
         uses: actions/upload-artifact@v4
