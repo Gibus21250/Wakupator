@@ -35,12 +35,18 @@ jobs:
           ARGS=()
           if [ -n "${{ matrix.toolchain }}" ]; then
             ARGS+=("-DCMAKE_TOOLCHAIN_FILE=$(pwd)/${{ matrix.toolchain }}")
+            ARGS+=("-DWAKUPATOR_UNIT_ONLY=ON")
           fi
-          cmake -B build -DCMAKE_BUILD_TYPE=Release "${ARGS[@]}"
-          cmake --build build -j$(nproc)
+          cmake -B build-${{ matrix.name }} \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWAKUPATOR_BUILD_TESTS=ON \
+            "${ARGS[@]}"
+
+      - name: Build
+        run: cmake --build build-${{ matrix.name }} -j$(nproc)
 
       - name: Tests
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build-${{ matrix.name }} --output-on-failure
 
       - name: Package
         run: |
@@ -72,20 +78,29 @@ jobs:
           cd dist && sha256sum *.tar.gz > SHA256SUMS
           cat SHA256SUMS
 
+      - name: Install git-cliff
+        run: |
+          if ! command -v git-cliff >/dev/null; then
+            python3 -m venv /tmp/cliff-venv
+            /tmp/cliff-venv/bin/pip install git-cliff==2.14.2
+            echo "/tmp/cliff-venv/bin" >> "$GITHUB_PATH"
+          fi
+          git cliff --version
+
       - name: Draft release notes
         run: |
           {
-            echo "## Resume"
-            echo
-            echo "<!-- FILL -->"
-            echo
-            echo "## Changelog"
-            bash scripts/release-notes.sh
-            echo
-            echo "## Checksums"
-            echo '```'
-            cat dist/SHA256SUMS
-            echo '```'
+          echo "## Resume"
+          echo
+          echo "<!-- FILL -->"
+          echo
+          echo "## Changelog"
+          git cliff --latest --strip header
+          echo
+          echo "## Checksums"
+          echo '```'
+          cat dist/SHA256SUMS
+          echo '```'
           } > notes.md
 
       - name: Create draft release (Gitea)
