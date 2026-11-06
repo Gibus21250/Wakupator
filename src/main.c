@@ -316,12 +316,6 @@ int wakupator_main(const int argc, char **argv)
 
         LOG_DEBUG("Parsing to client OK\n");
 
-        /*
-         * Two steps monitoring:
-         * - register the client to the client manager
-         * - Then start monitoring
-         */
-
         code = register_client(&manager, &cl);
 
         message = get_wakupator_message_code(code);

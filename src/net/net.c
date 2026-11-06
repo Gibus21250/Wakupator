@@ -271,7 +271,7 @@ int modify_neighbor(const int if_index, const char *ip_str, const uint8_t mac_ra
 
 // ------ ARP ------
 
-int probe_arp(const int raw_socket, const uint8_t mac_raw[6], const struct in_addr target_ip)
+int send_arp_probe(const int raw_socket, const uint8_t mac_raw[6], const struct in_addr target_ip)
 {
 
     const arp_packet arp_pkt = build_probe_arp_packet(mac_raw, target_ip);
@@ -310,7 +310,7 @@ arp_packet build_probe_arp_packet(const uint8_t mac_raw[6], const struct in_addr
     return arp_pkt;
 }
 
-int reply_arp(const int raw_socket, const uint8_t mac_raw[6], const arp_packet *request_arp, const struct in_addr spoofed_ip)
+int send_arp_reply(const int raw_socket, const uint8_t mac_raw[6], const arp_packet *request_arp, const struct in_addr spoofed_ip)
 {
 
     const arp_packet reply_arp = build_reply_arp_packet(mac_raw, request_arp, spoofed_ip);
@@ -395,11 +395,21 @@ uint16_t icmp6_checksum(const struct in6_addr *src, const struct in6_addr *dst, 
     return (uint16_t) ~sum;
 }
 
-int probe_ns(const int raw_socket, const uint8_t mac_raw[6], const struct in6_addr* link_ipv6,
-    const struct in6_addr* target_ip)
+int send_ndp_ns(const int raw_socket, const uint8_t mac_raw[6], const struct in6_addr* link_ipv6, const struct in6_addr* target_ip)
 {
 
-    ns_packet pkt;
+    ns_packet pkt = build_ns_packet(mac_raw, link_ipv6, target_ip);
+
+    if (send(raw_socket, &pkt, sizeof(pkt), 0) < 0)
+        return -1;
+
+    return 0;
+}
+
+ns_packet build_ns_packet(const uint8_t mac_raw[6], const struct in6_addr *src_ipv6, const struct in6_addr *target_ip)
+{
+
+    ns_packet pkt = {0};
 
     const size_t icmp_len = sizeof(struct nd_neighbor_solicit) + sizeof(struct nd_opt_hdr) + 6;
 
@@ -425,12 +435,12 @@ int probe_ns(const int raw_socket, const uint8_t mac_raw[6], const struct in6_ad
 
     // ------ IPv6 Header ------
     pkt.ipv6.ip6_vfc = 0x60;
-    pkt.ipv6.ip6_plen = htons(sizeof(struct nd_neighbor_solicit) + sizeof(struct nd_opt_hdr) + 6);
+    pkt.ipv6.ip6_plen = htons(icmp_len);
     pkt.ipv6.ip6_nxt = IPPROTO_ICMPV6;
     pkt.ipv6.ip6_hlim = 255;
 
     // Src = manager IPv6 Link Local address
-    memcpy(pkt.ipv6.ip6_src.s6_addr, link_ipv6, sizeof(struct in6_addr));
+    memcpy(pkt.ipv6.ip6_src.s6_addr, src_ipv6, sizeof(struct in6_addr));
 
     // Dest = solicited-node multicast
     memcpy(&pkt.ipv6.ip6_dst, &solicited_node_addr, sizeof(struct in6_addr));
@@ -447,34 +457,35 @@ int probe_ns(const int raw_socket, const uint8_t mac_raw[6], const struct in6_ad
     pkt.opt.nd_opt_len = 1;
     memcpy(pkt.src_mac, mac_raw, 6);
 
-
-
     //Checksum (converted to network endianness)
-    pkt.ns.nd_ns_cksum = htons(icmp6_checksum(link_ipv6, &solicited_node_addr, &pkt.ns, icmp_len));
+    pkt.ns.nd_ns_cksum = htons(icmp6_checksum(src_ipv6, &solicited_node_addr, &pkt.ns, icmp_len));
 
-    //Send
+    return pkt;
+
+}
+
+int send_ndp_na(int raw_socket, const uint8_t mac_raw[6], const ns_packet *received, const struct in6_addr *spoofed_ip)
+{
+
+    struct in6_addr dst_addr;
+
+    memcpy(&dst_addr, &received->ipv6.ip6_src, sizeof(struct in6_addr));
+
+    na_packet pkt = build_na_packet(mac_raw, received, spoofed_ip);
+
     if (send(raw_socket, &pkt, sizeof(pkt), 0) < 0)
         return -1;
 
     return 0;
 }
 
-
-int reply_ns(int raw_socket, const uint8_t mac_raw[6], const ns_packet *received,
-    const struct in6_addr *spoofed_ip)
+na_packet build_na_packet(const uint8_t mac_raw[6], const ns_packet *received, const struct in6_addr *spoofed_ip)
 {
-    na_packet pkt;
+    na_packet pkt = {0};
     const size_t icmp_len = sizeof(struct nd_neighbor_advert) + sizeof(struct nd_opt_hdr) + 6;
 
-    struct sockaddr_ll addr;
-    struct in6_addr dst_addr;
-
+    struct in6_addr dst_addr = {0};
     memcpy(&dst_addr, &received->ipv6.ip6_src, sizeof(struct in6_addr));
-
-    // No DAD (::) reply
-    if (IN6_IS_ADDR_UNSPECIFIED(&dst_addr)) {
-        return -1;
-    }
 
     // ------ Ethernet Header ------
     memcpy(pkt.eth.ether_dhost, received->eth.ether_shost, 6);
@@ -504,8 +515,5 @@ int reply_ns(int raw_socket, const uint8_t mac_raw[6], const ns_packet *received
     // Checksum (converted to network endianness)
     pkt.na.nd_na_cksum = htons(icmp6_checksum(spoofed_ip, &dst_addr, &pkt.na, icmp_len));
 
-    if (send(raw_socket, &pkt, sizeof(pkt), 0) < 0)
-        return -1;
-
-    return 0;
+    return pkt;
 }

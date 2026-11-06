@@ -181,11 +181,13 @@ int create_raw_socket_arp_request(const int if_index, const struct in_addr ip_ra
     return raw_socket;
 }
 
-//doc:
-//https://support.huawei.com/enterprise/en/doc/EDOC1100174721/ce2e60ac/icmpv6-neighbor-solicitation-ns-message
-//NS are multicast to resolve an address, and unicast when verifying the reachability of a neighbor
 int create_raw_socket_ns_request(int if_index, struct in6_addr ip_raw, const uint8_t mac_raw[6])
 {
+
+    //doc:
+    //https://support.huawei.com/enterprise/en/doc/EDOC1100174721/ce2e60ac/icmpv6-neighbor-solicitation-ns-message
+    //NS are multicast to resolve an address, and unicast when verifying the reachability of a neighbor
+
     const int raw_socket = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 
     if (raw_socket == -1)

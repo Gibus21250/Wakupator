@@ -91,3 +91,13 @@ target_link_libraries(wakupator PRIVATE
 )
 
 install(TARGETS wakupator DESTINATION bin)
+
+# ---------------------------------------------------      Test      ---------------------------------------------------
+
+option(WAKUPATOR_BUILD_TESTS "Build tests" OFF)
+option(WAKUPATOR_UNIT_ONLY "Only socket-free tests" OFF)
+
+if(WAKUPATOR_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

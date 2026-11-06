@@ -46,7 +46,7 @@ typedef struct __attribute__((packed)) {
  * @param target_ip Big Endian IPv4
  * @return 0 if OK, -1 if error
  */
-int probe_arp(int raw_socket, const uint8_t mac_raw[6], struct in_addr target_ip);
+int send_arp_probe(int raw_socket, const uint8_t mac_raw[6], struct in_addr target_ip);
 
 arp_packet build_probe_arp_packet(const uint8_t mac_raw[6], struct in_addr target_ip);
 
@@ -57,7 +57,7 @@ arp_packet build_probe_arp_packet(const uint8_t mac_raw[6], struct in_addr targe
  * @param spoofed_ip Big endian IPv4
  * @return
  */
-int reply_arp(int raw_socket, const uint8_t mac_raw[6], const arp_packet *request_arp, struct in_addr spoofed_ip);
+int send_arp_reply(int raw_socket, const uint8_t mac_raw[6], const arp_packet *request_arp, struct in_addr spoofed_ip);
 
 arp_packet build_reply_arp_packet(const uint8_t mac_raw[6], const arp_packet *request_arp, struct in_addr spoofed_ip);
 
@@ -90,21 +90,39 @@ typedef struct {
 uint16_t icmp6_checksum(const struct in6_addr *src, const struct in6_addr *dst, const void *icmp_data, uint32_t icmp6_len);
 
 /**
- * Build and send an NS for the target IP
+ * Build and send an NS for the target IP using the linkipv6 ip as source.
  * @param raw_socket raw socket
  * @param target_ip Big endian target IPv6
  * @return -1 if error, 0 if OK
  */
-int probe_ns(int raw_socket, const uint8_t mac_raw[6], const struct in6_addr *link_ipv6, const struct in6_addr *target_ip);
+int send_ndp_ns(int raw_socket, const uint8_t mac_raw[6], const struct in6_addr *link_ipv6, const struct in6_addr *target_ip);
+
+/**
+ * Build a ICMPv6 Network Solicitation packet in network endianness
+ * @param mac_raw Source MAC to use
+ * @param src_ipv6 Source IPv6
+ * @param target_ip Target IPv6
+ * @return ns_packet
+ */
+ns_packet build_ns_packet(const uint8_t mac_raw[6], const struct in6_addr *src_ipv6, const struct in6_addr *target_ip);
 
 /**
  * Take an NS packet and reply with an NA to the raw_socket, using the mac_raw of the interface and the spoofed IP
- * Reply to an NS for a specific IP
+ * Reply to an NS for a specific IP.
  * Warning: assume request_arp is filled with big endian data.
  * @param received ns_packet in Big Endian
  * @param spoofed_ip Big endian IPv6
  * @return -1 if error, 0 if OK
  */
-int reply_ns(int raw_socket, const uint8_t mac_raw[6], const ns_packet *received, const struct in6_addr *spoofed_ip);
+int send_ndp_na(int raw_socket, const uint8_t mac_raw[6], const ns_packet *received, const struct in6_addr *spoofed_ip);
+
+/**
+ * Build a ICMPv6 Network Advertisements packet in network endianness from a NS.
+ * @param mac_raw Source MAC to use
+ * @param received Network Solicitation packet to reply to
+ * @param spoofed_ip IPv6 to reply with
+ * @return na_packet
+ */
+na_packet build_na_packet(const uint8_t mac_raw[6], const ns_packet *received, const struct in6_addr *spoofed_ip);
 
 #endif //NET_H

@@ -39,7 +39,7 @@ static wakupator_code reply_to_probe(const manager *manager, const int fd, const
 
         const arp_packet *arp_pkt = (arp_packet*) packet;
 
-        if (reply_arp(manager->main_raw_socket, manager->if_mac_raw, arp_pkt, ip_info->ipv4))
+        if (send_arp_reply(manager->main_raw_socket, manager->if_mac_raw, arp_pkt, ip_info->ipv4))
             return WK_MONITOR_ARP_REPLY_ERROR;
 
         LOG_DEBUG("Reply to ARP packet\n");
@@ -52,7 +52,7 @@ static wakupator_code reply_to_probe(const manager *manager, const int fd, const
 
         const ns_packet* ns_pkt = (ns_packet*) packet;
 
-        if (reply_ns(manager->main_raw_socket, manager->if_mac_raw, ns_pkt, &ip_info->ipv6))
+        if (send_ndp_na(manager->main_raw_socket, manager->if_mac_raw, ns_pkt, &ip_info->ipv6))
             return WK_MONITOR_NS_REPLY_ERROR;
 
         LOG_DEBUG("Reply to NS packet\n");
@@ -251,7 +251,7 @@ void *main_client_monitoring(void* args)
 
         if (client_target_ip->ip_format == AF_INET)
         {
-            if (probe_arp(manager->main_raw_socket, manager->if_mac_raw, client_target_ip->ipv4))
+            if (send_arp_probe(manager->main_raw_socket, manager->if_mac_raw, client_target_ip->ipv4))
             {
                 log_fatal("%s: Error sending ARP packet, Wakupator could not verify the response.\n", client_header);
                 continue;
@@ -261,7 +261,7 @@ void *main_client_monitoring(void* args)
         }
         else
         {
-            if (probe_ns(manager->main_raw_socket, manager->if_mac_raw, &manager->if_ipv6_link_local,
+            if (send_ndp_ns(manager->main_raw_socket, manager->if_mac_raw, &manager->if_ipv6_link_local,
                 &client_target_ip->ipv6))
             {
                 log_fatal("%s: Error sending ICMPv6 NS Request, Wakupator could not verify the response.\n", client_header);
