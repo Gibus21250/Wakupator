@@ -3,6 +3,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, edited, synchronize, reopened]
   workflow_dispatch:
 
 jobs:
@@ -14,8 +15,10 @@ jobs:
         env:
           TITLE: ${{ github.event.pull_request.title }}
         run: |
-          echo "$TITLE" | grep -Eq '^[A-Z][a-z]+ \([A-Za-z0-9 _-]+\): [^ ].+$' \
-            || { echo "Invalid title: $TITLE (e.g: Feature (Core): My new feature)"; exit 1; }
+          REG='^(feat|fix|perf|refactor|docs|test|build|ci|chore)(\([a-z0-9_-]+\))?!?: [^ ].+$'
+          echo "$TITLE" | grep -Eq "$REG" \
+            || { echo "Invalid title: $TITLE (e.g: feat(core): my new feature)"; exit 1; }
+
 
   build:
     runs-on: ubuntu-latest

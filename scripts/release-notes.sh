@@ -5,14 +5,24 @@ export LC_ALL=C
 PREV=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
 RANGE="${PREV:+$PREV..}HEAD"
 
-git log --first-parent --no-merges --pretty=%s $RANGE \
-| sed -nE 's/^([A-Za-z]+) \(([^)]*)\): (.*) \(#([0-9]+)\)$/\1|\2|\3|\4/p' \
-| sort -t'|' -k1,1 -k2,2 \
-| awk -F'|' '
-    $1 != last {
-        t = tolower($1)
-        h = (t=="feature") ? "Features" : (t=="fix") ? "Bug fixes" : $1
-        printf "\n### %s\n", h; last = $1
+git log --first-parent --pretty=%s "$RANGE" \
+| sed -nE 's/^([A-Za-z]+) ?\(([^)]*)\)!?: (.*) \(#([0-9]+)\)$/\1\t\2\t\3\t\4/p' \
+| awk -F'\t' '
+    function norm(t) {
+        t = tolower(t)
+        if (t == "feature") return "feat"
+        if (t == "bugfix")  return "fix"
+        return t
     }
-    { printf "- **%s** : %s (#%s)\n", $2, $3, $4 }
+    BEGIN {
+        n = split("feat fix perf refactor docs", order, " ")
+        title["feat"] = "Features";   title["fix"]      = "Bug fixes"
+        title["perf"] = "Performance"; title["refactor"] = "Refactoring"
+        title["docs"] = "Documentation"
+    }
+    { t = norm($1); out[t] = out[t] sprintf("- **%s** : %s (#%s)\n", $2, $3, $4) }
+    END {
+        for (i = 1; i <= n; i++)
+            if (order[i] in out) printf "\n### %s\n%s", title[order[i]], out[order[i]]
+    }
 '
