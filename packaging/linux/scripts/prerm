@@ -1,0 +1,6 @@
+#!/bin/sh
+set -e
+if command -v systemctl >/dev/null; then
+  systemctl stop 'wakupator@*.service' 2>/dev/null || true
+fi
+exit 0

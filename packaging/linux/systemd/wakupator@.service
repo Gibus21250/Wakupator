@@ -1,0 +1,36 @@
+[Unit]
+Description=Wakupator daemon for %i interface
+Wants=network-online.target
+After=network-online.target
+ConditionFileNotEmpty=/etc/wakupator/%i.conf
+
+[Service]
+Type=simple
+
+Environment=HOST=0.0.0.0 PORT=13717 SHUTDOWN_TIMEOUT=600 SHUTDOWN_PROBE_DELAY=4
+Environment=WOL_MAX_ATTEMPTS=3 WOL_DELAY=30 WOL_KEEP_CLIENT=1
+EnvironmentFile=/etc/wakupator/%i.conf
+
+ExecStart=/usr/sbin/wakupator \
+  -if ${INTERFACE_NAME} \
+  -H ${HOST} \
+  -p ${PORT} \
+  -st ${SHUTDOWN_TIMEOUT} \
+  -spd ${SHUTDOWN_PROBE_DELAY} \
+  -wma ${WOL_MAX_ATTEMPTS} \
+  -wd ${WOL_DELAY} \
+  -wkc ${WOL_KEEP_CLIENT}
+
+User=wakupator
+Group=wakupator
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

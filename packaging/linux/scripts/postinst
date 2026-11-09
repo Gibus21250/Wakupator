@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+if ! getent passwd wakupator >/dev/null; then
+  useradd --system --no-create-home --home-dir /nonexistent \
+          --shell /usr/sbin/nologin wakupator 2>/dev/null \
+  || adduser --system --group --no-create-home --home /nonexistent wakupator
+fi
+getent group wakupator >/dev/null || groupadd --system wakupator
+command -v systemctl >/dev/null && systemctl daemon-reload || true
+exit 0

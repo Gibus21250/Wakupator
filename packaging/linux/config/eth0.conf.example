@@ -1,0 +1,29 @@
+# /etc/wakupator/eth0.conf.example
+# Wakupator config file for interface: eth0
+
+# Required: Name of the interface on which Wakupator is working on:
+INTERFACE_NAME=eth0
+
+# Optional: Host IP (default: 0.0.0.0)
+HOST=0.0.0.0
+
+# Optional: listening port (default: 13717)
+PORT=13717
+
+# ----- Shutdown control parameters -----
+# Optional: Maximum time in seconds to wait for the machine to be offline after beeing registered to Wakupator.
+# A Timeout cancel IP spoofing and monitoring for this machine. (default: 600)
+SHUTDOWN_TIMEOUT=600
+
+# Optional: Define the delay in seconds between each neigh probes checking if the machine is still on. (DEFAULT: 4)
+SHUTDOWN_PROBE_DELAY=4
+
+# ----- Wake On LAN control parameters -----
+# Optional: Maximum WOL attempts to wake up the machine (default: 3)
+WOL_MAX_ATTEMPTS=3
+
+# Optional: time between WOL attempts in seconds (default: 30)
+WOL_DELAY=30
+
+# Optional: keep or not the client monitored if it doesn't start before <WOL_MAX_ATTEMPTS x WOL_DELAY> seconds. (0|1, default: 1)
+WOL_KEEP_CLIENT=1
