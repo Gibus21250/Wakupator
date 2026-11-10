@@ -3,6 +3,11 @@ on:
   push:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version (e.g: 0.2.0~test)"
+        default: "0.0.0~dev"
 
 permissions:
   contents: write
