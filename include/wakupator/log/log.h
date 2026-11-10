@@ -11,7 +11,10 @@ void log_fatal(const char *format, ...);
 
 void log_debug_internal(const char *file, const char *func, int line, const char *format, ...);
 
-#define log_debug(format, ...) \
-    log_debug_internal(__FILE__, __func__, __LINE__, format, ##__VA_ARGS__)
-
+#ifdef DEBUG_MODE
+    #define LOG_DEBUG(...) \
+        log_debug_internal(__FILE__, __func__, __LINE__, __VA_ARGS__)
+#else
+    #define LOG_DEBUG(...) ((void)0)
+#endif
 #endif //WAKUPATOR_LOGGER_H

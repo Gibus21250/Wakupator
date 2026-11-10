@@ -16,11 +16,12 @@
 #include "wakupator/utils/utils.h"
 
 #include "wakupator/log/log.h"
+#include "wakupator/net/net.h"
 
 #define BUFFER_SIZE 4096
 int server_fd = -1;
 
-void handle_signal(int signum) {
+void handle_signal() {
     log_info("System signal caught.\n");
     if (server_fd != -1) {
         close(server_fd);
@@ -40,34 +41,29 @@ const char help_message[] =
         "\t-p,  --port <port_number>          Define the port number. ([1-65535], DEFAULT: 13717)\n"
         "\n"
         "  Shutdown control parameters:\n"
-        "\t-st, --shutdown-timeout <s>        Maximum time in seconds to wait for the machine to be offline before canceling IP spoofing and monitoring. (DEFAULT: 600, -1: inf)\n"
+        "\t-st, --shutdown-timeout <s>        Maximum time in seconds to wait for the machine to be offline before canceling IP spoofing. (DEFAULT: 600, -1: inf)\n"
         "\t-spd, --shutdown-probe-delay <s>   Define the delay (seconds) between ARP (IPv4) and NS (IPv6) probes. (DEFAULT: 4)\n"
         "\n"
         "  Wake-up control parameters:\n"
-        "\t-wma, --wol-max-attempts <number>  Define the maximum attemps of Wake-On-LAN. (DEFAULT: 3)\n"
+        "\t-wma, --wol-max-attempts <number>  Define the maximum attempts of Wake-On-LAN. (DEFAULT: 3)\n"
         "\t-wd,  --wol-delay <s>              Define the time (seconds) between Wake-On-LAN attempts. (DEFAULT: 30)\n"
-        "\t-wkc, --wol-keep-client <0|1>      Keep the client monitored if it doesn't start after maximum attempt(s). (0: False, 1: True, DEFAULT: 1)\n"
+        "\t-wkc, --wol-keep-client <0|1>      Keep the client monitored if it doesn't start after maximum attempts. (0: False, 1: True, DEFAULT: 1)\n"
+        "\n"
         "\t--help                             Display this help message.\n";
 
 typedef struct wakupator_config {
-    const char* ifName;
+    const char* if_name;
     const char* ip;
     uint16_t port;
-    uint16_t wolKeepClient;
-    uint32_t wolMaxAttempts;
-    uint32_t wolDelay;
-    uint16_t shutdownTimeout;
-    uint16_t shutdownProbeInterval;
+    uint16_t wol_keep_client;
+    uint32_t wol_max_attempts;
+    uint32_t wol_delay;
+    uint16_t shutdown_timeout;
+    uint16_t shutdown_probe_interval;
 } wakupator_config;
 
-typedef enum ARGS_PARSING_CODE {
-    PARSING_OK = 0,
-    PARSING_HELP,
-    PARSING_ERROR
-} ARGS_PARSING_CODE;
-
 /**
- * Reformate arguments if they are parsed between single quote. (Exemple when remote debugging, or shell script launch etc)
+ * Reformate arguments if they are parsed between single quote. (Exemple when remote debugging, or shell script launch etc.)
  */
 void format_quoted_arguments(const int argc, char **argv)
 {
@@ -93,11 +89,11 @@ void format_quoted_arguments(const int argc, char **argv)
     }
 }
 
-ARGS_PARSING_CODE parse_arguments(const int argc, char **argv, wakupator_config *context)
+wakupator_code parse_arguments(const int argc, char **argv, wakupator_config *context)
 {
 
     if(argc == 1 || strcmp(argv[1], "--help") == 0) {
-        return PARSING_HELP;
+        return WK_CONFIG_PARSING_HELP;
     }
 
     for (int i = 1; i < argc-1; i +=2)
@@ -108,12 +104,12 @@ ARGS_PARSING_CODE parse_arguments(const int argc, char **argv, wakupator_config 
         }
         else if(strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--port") == 0)
         {
-            char *endPtr;
-            context->port = (int) strtol(argv[i+1], &endPtr, 10);
+            char *end_ptr;
+            context->port = (int) strtol(argv[i+1], &end_ptr, 10);
 
-            if (*endPtr != '\0' || context->port < 1 || context->port > 65535) {
+            if (*end_ptr != '\0' || context->port < 1 || context->port > 65535) {
                 log_error("Error: invalid port '%s'.\n", argv[i+1]);
-                return PARSING_ERROR;
+                return WK_CONFIG_PARSING_ERROR;
             }
         }
         else if(strcmp(argv[i], "-if") == 0 || strcmp(argv[i], "--interface-name") == 0)
@@ -121,52 +117,52 @@ ARGS_PARSING_CODE parse_arguments(const int argc, char **argv, wakupator_config 
             if(strlen(argv[i+1]) > IFNAMSIZ)
             {
                 log_error("Error: invalid interface name '%s'.\n", argv[i+1]);
-                return PARSING_ERROR;
+                return WK_CONFIG_PARSING_ERROR;
             }
-            context->ifName = argv[i+1];
+            context->if_name = argv[i+1];
         }
         else if(strcmp(argv[i], "-wma") == 0 || strcmp(argv[i], "--wol-max-attempts") == 0)
         {
-            char *endPtr;
-            context->wolMaxAttempts = (uint32_t) strtol(argv[i+1], &endPtr, 10);
+            char *end_ptr;
+            context->wol_max_attempts = (uint32_t) strtol(argv[i+1], &end_ptr, 10);
 
-            if (*endPtr != '\0') {
+            if (*end_ptr != '\0') {
                 log_error("Error: invalid number attempt value '%s'.\n", argv[i+1]);
-                return PARSING_ERROR;
+                return WK_CONFIG_PARSING_ERROR;
             }
         }
         else if(strcmp(argv[i], "-wd") == 0 || strcmp(argv[i], "--wol-delay") == 0)
         {
-            char *endPtr;
-            context->wolDelay = (uint32_t) strtol(argv[i+1], &endPtr, 10);
+            char *end_ptr;
+            context->wol_delay = (uint32_t) strtol(argv[i+1], &end_ptr, 10);
 
-            if (*endPtr != '\0') {
+            if (*end_ptr != '\0') {
                 log_error("Error: invalid time between attempt value '%s'.\n", argv[i+1]);
-                return PARSING_ERROR;
+                return WK_CONFIG_PARSING_ERROR;
             }
         }
         else if(strcmp(argv[i], "-wkc") == 0 || strcmp(argv[i], "--wol-keep-client") == 0)
         {
-            context->wolKeepClient = argv[i+1][0] == '0'?0:1;
+            context->wol_keep_client = argv[i+1][0] == '0'?0:1;
         }
         else if(strcmp(argv[i], "-st") == 0 || strcmp(argv[i], "--shutdown-timeout") == 0)
         {
-            char *endPtr;
-            context->shutdownTimeout = (uint32_t) strtol(argv[i+1], &endPtr, 10);
+            char *end_ptr;
+            context->shutdown_timeout = (uint32_t) strtol(argv[i+1], &end_ptr, 10);
 
-            if (*endPtr != '\0') {
+            if (*end_ptr != '\0') {
                 log_error("Error: invalid shutdown timeout value '%s'.\n", argv[i+1]);
-                return PARSING_ERROR;
+                return WK_CONFIG_PARSING_ERROR;
             }
         }
         else if(strcmp(argv[i], "-spd") == 0 || strcmp(argv[i], "--shutdown-probe-delay") == 0)
         {
-            char *endPtr;
-            context->shutdownProbeInterval = (uint32_t) strtol(argv[i+1], &endPtr, 10);
+            char *end_ptr;
+            context->shutdown_probe_interval = (uint32_t) strtol(argv[i+1], &end_ptr, 10);
 
-            if (*endPtr != '\0') {
+            if (*end_ptr != '\0') {
                 log_error("Error: invalid probe interval value '%s'.\n", argv[i+1]);
-                return PARSING_ERROR;
+                return WK_CONFIG_PARSING_ERROR;
             }
         }else
         {
@@ -174,7 +170,7 @@ ARGS_PARSING_CODE parse_arguments(const int argc, char **argv, wakupator_config 
         }
     }
 
-    return PARSING_OK;
+    return WK_OK;
 }
 
 int wakupator_main(const int argc, char **argv)
@@ -183,35 +179,34 @@ int wakupator_main(const int argc, char **argv)
     wakupator_config config;
 
     config.ip = "0.0.0.0";
-    config.ifName = NULL;
+    config.if_name = NULL;
     config.port = 13717;
-    config.wolMaxAttempts = 3;
-    config.wolDelay = 30;
-    config.wolKeepClient = 1;
-    config.shutdownTimeout = 600;
-    config.shutdownProbeInterval = 4;
+    config.wol_max_attempts = 3;
+    config.wol_delay = 30;
+    config.wol_keep_client = 1;
+    config.shutdown_timeout = 600;
+    config.shutdown_probe_interval = 4;
 
     format_quoted_arguments(argc, argv);
-    const int parseArgsRes = parse_arguments(argc, argv, &config);
+    const int parse_args_res = parse_arguments(argc, argv, &config);
 
-    if (parseArgsRes == PARSING_ERROR)
+    if (parse_args_res == WK_CONFIG_PARSING_ERROR)
         return EXIT_FAILURE;
 
-    if (parseArgsRes == PARSING_HELP) {
+    if (parse_args_res == WK_CONFIG_PARSING_HELP) {
         printf(help_message);
         return EXIT_SUCCESS;
     }
 
-
-    if(config.ifName == NULL)
+    if(config.if_name == NULL)
     {
-        log_fatal("You need to bind Wakupator to a specific Interface with the option -if <ifName> or --interface-name <ifName> (exemple: eth0, enp5s0 etc)\n");
+        log_fatal("You need to bind Wakupator to a specific network interface with the option -if <ifName> or --interface-name <ifName> (exemple: eth0, enp5s0 etc)\n");
         return 0;
     }
-    //------- PARSING OK -------
+    //------- PARSING CONFIG OK -------
 
-    //------- PRINT START INFO -------
-    log_info("Starting Wakupator...");
+    //------- Init TCP listener and manager -------
+    log_info("Starting Wakupator...\n");
 
     if (signal(SIGINT, handle_signal) == SIG_ERR) {
         log_fatal("Error while setup signal handler.\n");
@@ -222,10 +217,10 @@ int wakupator_main(const int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    struct sockaddr_storage serverAddress;
-    int addrLen;
+    struct sockaddr_storage server_address;
+    int addr_len;
 
-    server_fd = init_ip_socket(config.ip, config.port, SOCK_STREAM, IPPROTO_TCP, &serverAddress, &addrLen);
+    server_fd = init_ip_socket(config.ip, config.port, SOCK_STREAM, IPPROTO_TCP, &server_address, &addr_len);
 
     if(server_fd == -1)
     {
@@ -234,15 +229,15 @@ int wakupator_main(const int argc, char **argv)
     }
 
     struct ifreq ifr = {0};
-    strncpy(ifr.ifr_name, config.ifName, IFNAMSIZ-1);
-    if(setsockopt(server_fd, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(ifr)))
+    strncpy(ifr.ifr_name, config.if_name, IFNAMSIZ-1);
+    if(setsockopt(server_fd, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifr)))
     {
-        log_fatal("Impossible to bind the socket to the interface: '%s'.\n", config.ifName);
+        log_fatal("Impossible to bind the socket to the interface: '%s'.\n", config.if_name);
         close(server_fd);
         return EXIT_FAILURE;
     }
 
-    if (bind(server_fd, (struct sockaddr *)&serverAddress, addrLen) < 0) {
+    if (bind(server_fd, (struct sockaddr *)&server_address, addr_len) < 0) {
         log_fatal("Main server binding failed: %s\n", strerror(errno));
         close(server_fd);
         return EXIT_FAILURE;
@@ -255,32 +250,32 @@ int wakupator_main(const int argc, char **argv)
     }
 
     manager manager;
-    WAKUPATOR_CODE code = init_manager(&manager, config.ifName);
+    wakupator_code code = init_manager(&manager, config.if_name);
 
-    if(code != OK)
+    if(code != WK_OK)
     {
         log_fatal("%s\n", get_wakupator_message_code(code), strerror(errno));
         close(server_fd);
         return EXIT_FAILURE;
     }
 
-    manager.wolKeepClient = (unsigned char) config.wolKeepClient;
-    manager.wolMaxAttempts = config.wolMaxAttempts;
-    manager.wolDelay = config.wolDelay;
-    manager.shutdownTimeout = config.shutdownTimeout;
-    manager.shutdownProbeInterval = config.shutdownProbeInterval;
+    manager.wol_keep_client = (unsigned char) config.wol_keep_client;
+    manager.wol_max_attempts = config.wol_max_attempts;
+    manager.wol_delay = config.wol_delay;
+    manager.shutdown_timeout = config.shutdown_timeout;
+    manager.shutdown_probe_interval = config.shutdown_probe_interval;
 
     int client_fd;
     int running = 1;
 
-    log_info("Started Wakupator bound to interface %s and listen on [%s]:%u\n", config.ifName, config.ip, config.port);
+    log_info("Started Wakupator bound to interface %s and listen on [%s]:%u\n", config.if_name, config.ip, config.port);
     log_info("Ready to register clients!\n");
 
     while(running)
     {
         char buffer[BUFFER_SIZE] = {0};
 
-        if ((client_fd = accept(server_fd, (struct sockaddr *)&serverAddress, (socklen_t*) &addrLen)) < 0) {
+        if ((client_fd = accept(server_fd, (struct sockaddr *)&server_address, (socklen_t*) &addr_len)) < 0) {
             if(server_fd == -1)
             {
                 log_info("Main server closed.\n");
@@ -296,7 +291,7 @@ int wakupator_main(const int argc, char **argv)
         const ssize_t size = read(client_fd, buffer, BUFFER_SIZE);
         if (size <= 0) {
             if (size == 0)
-                log_debug("Client disconnected before sending registration.\n");
+                LOG_DEBUG("Client disconnected before sending registration.\n");
             else
                 log_error("Error while reading client: %s\n", strerror(errno));
 
@@ -304,14 +299,14 @@ int wakupator_main(const int argc, char **argv)
             continue;
         }
 
-        log_debug("New registration received: %s\n", buffer);
+        LOG_DEBUG("New registration received: %s\n", buffer);
 
         client cl;
         const char *message;
 
         code = create_client_from_json(buffer, &cl);
 
-        if(code != OK) {
+        if(code != WK_OK) {
             message = get_wakupator_message_code(code);
             write(client_fd, message, strlen(message)+1);
             log_info("Error in the JSON of the client: %s\n", message);
@@ -319,13 +314,7 @@ int wakupator_main(const int argc, char **argv)
             continue;
         }
 
-        log_debug("Parsing OK\n");
-
-        /*
-         * Two steps monitoring:
-         * - register the client to the client manager
-         * - Then start monitoring
-         */
+        LOG_DEBUG("Parsing to client OK\n");
 
         code = register_client(&manager, &cl);
 
@@ -333,7 +322,7 @@ int wakupator_main(const int argc, char **argv)
         write(client_fd, message, strlen(message)+1);
         close(client_fd); //close fd => close tcp
 
-        if(code != OK) {
+        if(code != WK_OK) {
             log_info("Failed to register the client: %s\n", message);
             destroy_client(&cl);
             continue;

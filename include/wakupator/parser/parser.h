@@ -6,9 +6,10 @@
 #define WAKUPATOR_PARSER_H
 
 #include "wakupator/core/core.h"
+#include "wakupator/core/client.h"
 
-WAKUPATOR_CODE create_client_from_json(const char *json_raw, client *client);
+wakupator_code create_client_from_json(const char *json_raw, client *client);
 
-int verify_mac_format(const char *strMac);
+int verify_mac_format(const char *str_mac);
 
 #endif //WAKUPATOR_PARSER_H

@@ -10,21 +10,21 @@
 
 #include "wakupator/parser/parser.h"
 
-#include "wakupator/utils/net.h"
+#include "wakupator/net/net.h"
 
-WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
+wakupator_code create_client_from_json(const char *json_raw, client* client)
 {
     cJSON *json = cJSON_Parse(json_raw);
     if (json == NULL)
-        return PARSING_CJSON_ERROR;
+        return WK_PARSING_CJSON_ERROR;
 
     //Init the client struct
-    client->macStr[0] = 0;
-    client->macRaw[0] = 0;
+    client->mac_str[0] = 0;
+    client->mac_raw[0] = 0;
     client->name[0] = 0;
-    client->ipPortInfo = NULL;
-    client->countIp = 0;
-    client->timeStarted = 0;
+    client->ip_port_info = NULL;
+    client->count_ip = 0;
+    client->time_started = 0;
 
     //----- Parse MAC address (STR and RAW) -----
     const cJSON *mac = cJSON_GetObjectItemCaseSensitive(json, "mac");
@@ -32,15 +32,15 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
     if (!cJSON_IsString(mac) || verify_mac_format(mac->valuestring))
     {
         cJSON_Delete(json);
-        return PARSING_INVALID_MAC_ADDRESS;
+        return WK_PARSING_INVALID_MAC_ADDRESS;
     }
 
-    strcpy(client->macStr, mac->valuestring);
+    strcpy(client->mac_str, mac->valuestring);
 
-    if (str_to_raw_mac(client->macStr, client->macRaw))
+    if (str_to_raw_mac(client->mac_str, client->mac_raw))
     {
         cJSON_Delete(json);
-        return PARSING_INVALID_MAC_ADDRESS;
+        return WK_PARSING_INVALID_MAC_ADDRESS;
     }
 
     //----- Parse Name (STR) -----
@@ -49,12 +49,12 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
     if (!cJSON_IsString(name))
     {
         cJSON_Delete(json);
-        return PARSING_INVALID_NAME_FORMAT;
+        return WK_PARSING_INVALID_NAME_FORMAT;
     }
 
     if (strlen(name->valuestring) > sizeof(client->name)-1) {
         cJSON_Delete(json);
-        return PARSING_INVALID_NAME_TOO_LONG;
+        return WK_PARSING_INVALID_NAME_TOO_LONG;
     }
 
     strcpy(client->name, name->valuestring);
@@ -65,7 +65,7 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
     if(!cJSON_IsArray(monitor_array))
     {
         cJSON_Delete(json);
-        return PARSING_CJSON_ERROR;
+        return WK_PARSING_CJSON_ERROR;
     }
 
     const int monitor_count = cJSON_GetArraySize(monitor_array);
@@ -73,15 +73,15 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
     if(monitor_count == 0)
     {
         cJSON_Delete(json);
-        return PARSING_CJSON_ERROR;
+        return WK_PARSING_CJSON_ERROR;
     }
 
-    client->ipPortInfo = (ip_port_info*) calloc(monitor_count, sizeof(ip_port_info));
+    client->ip_port_info = (ip_port_info*) calloc(monitor_count, sizeof(ip_port_info));
 
-    if(client->ipPortInfo == NULL)
+    if(client->ip_port_info == NULL)
     {
         cJSON_Delete(json);
-        return OUT_OF_MEMORY;
+        return WK_OUT_OF_MEMORY;
     }
 
     //----- ----- Verify uniqueness of each IP ----- -----
@@ -94,7 +94,7 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
         {
             destroy_client(client);
             cJSON_Delete(json);
-            return PARSING_INVALID_IP_ADDRESS_FORMAT;
+            return WK_PARSING_INVALID_IP_ADDRESS_FORMAT;
         }
 
         for (int j = i+1; j < monitor_count; ++j)
@@ -106,7 +106,7 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
             {
                 destroy_client(client);
                 cJSON_Delete(json);
-                return PARSING_INVALID_IP_ADDRESS_FORMAT;
+                return WK_PARSING_INVALID_IP_ADDRESS_FORMAT;
             }
 
             //Same IP asked in 2 different monitor object
@@ -114,12 +114,10 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
             {
                 destroy_client(client);
                 cJSON_Delete(json);
-                return PARSING_DUPLICATED_IP_ADDRESS;
+                return WK_PARSING_DUPLICATED_IP_ADDRESS;
             }
         }
     }
-
-    char rawIpStorage_Temp[16];
 
     //For each ip:[ports] object
     for (int i = 0; i < monitor_count; ++i)
@@ -127,30 +125,35 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
         const cJSON *monitor_item = cJSON_GetArrayItem(monitor_array, i);
         const cJSON *ip = cJSON_GetObjectItemCaseSensitive(monitor_item, "ip");
 
-        const int AF = strchr(ip->valuestring, ':') != 0?AF_INET6:AF_INET;
+        const int af = strchr(ip->valuestring, ':') != 0?AF_INET6:AF_INET;
 
-        client->countIp++;
+        client->count_ip++;
 
-        client->ipPortInfo[i].ipFormat = AF;
-
-        //If inet_pton works fine, we can admit that the format is conformed
-        if(inet_pton(AF, ip->valuestring, &rawIpStorage_Temp) != 1)
+        if (af == AF_INET)
         {
-            destroy_client(client);
-            cJSON_Delete(json);
-            return PARSING_INVALID_IP_ADDRESS_FORMAT;
+            client->ip_port_info[i].ip_format = AF_INET;
+
+            if(inet_pton(AF_INET, ip->valuestring, &client->ip_port_info[i].ipv4) != 1)
+            {
+                destroy_client(client);
+                cJSON_Delete(json);
+                return WK_PARSING_INVALID_IP_ADDRESS_FORMAT;
+            }
+        }
+        else
+        {
+            client->ip_port_info[i].ip_format = AF_INET6;
+
+            if(inet_pton(AF_INET6, ip->valuestring, &client->ip_port_info[i].ipv6) != 1)
+            {
+                destroy_client(client);
+                cJSON_Delete(json);
+                return WK_PARSING_INVALID_IP_ADDRESS_FORMAT;
+            }
+
         }
 
-        client->ipPortInfo[i].ipStr = (char*) malloc((strlen(ip->valuestring) + 1) * sizeof(char));
-
-        if(client->ipPortInfo[i].ipStr == NULL)
-        {
-            destroy_client(client);
-            cJSON_Delete(json);
-            return OUT_OF_MEMORY;
-        }
-
-        strcpy(client->ipPortInfo[i].ipStr, ip->valuestring);
+        strcpy(client->ip_port_info[i].ip_str, ip->valuestring);
 
         //Parse all ports for this IP
         const cJSON *ports_array = cJSON_GetObjectItemCaseSensitive(monitor_item, "port");
@@ -159,28 +162,28 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
         {
             destroy_client(client);
             cJSON_Delete(json);
-            return PARSING_CJSON_ERROR;
+            return WK_PARSING_CJSON_ERROR;
         }
 
         const int port_count = cJSON_GetArraySize(ports_array);
 
-        client->ipPortInfo[i].portCount = 0;
-        client->ipPortInfo[i].ports = NULL;
+        client->ip_port_info[i].port_count = 0;
+        client->ip_port_info[i].ports = NULL;
 
         //Parse each ports (if available)
         if(port_count != 0)
         {
 
-            client->ipPortInfo[i].ports = (uint16_t *) malloc(port_count * sizeof(uint16_t));
+            client->ip_port_info[i].ports = (uint16_t *) malloc(port_count * sizeof(uint16_t));
 
-            if(client->ipPortInfo[i].ports == NULL)
+            if(client->ip_port_info[i].ports == NULL)
             {
                 destroy_client(client);
                 cJSON_Delete(json);
-                return OUT_OF_MEMORY;
+                return WK_OUT_OF_MEMORY;
             }
 
-            client->ipPortInfo[i].portCount = port_count;
+            client->ip_port_info[i].port_count = port_count;
 
             //For each port
             for (int j = 0; j < port_count; ++j) {
@@ -190,33 +193,33 @@ WAKUPATOR_CODE create_client_from_json(const char *json_raw, client* client)
                 {
                     destroy_client(client);
                     cJSON_Delete(json);
-                    return PARSING_INVALID_PORT;
+                    return WK_PARSING_INVALID_PORT;
                 }
 
                 if(port->valueint < 0 || port->valueint > (uint16_t)-1)
                 {
                     destroy_client(client);
                     cJSON_Delete(json);
-                    return PARSING_INVALID_PORT;
+                    return WK_PARSING_INVALID_PORT;
                 }
 
-                client->ipPortInfo[i].ports[j] = port->valueint;
+                client->ip_port_info[i].ports[j] = port->valueint;
 
             }
         }
     }
 
     cJSON_Delete(json);
-    return OK;
+    return WK_OK;
 }
 
-int verify_mac_format(const char *strMac)
+int verify_mac_format(const char *str_mac)
 {
-    if (strlen(strMac) != 17)
+    if (strlen(str_mac) != 17)
         return 1;
 
     for (int i = 0; i < 17; i++) {
-        const char c = strMac[i];
+        const char c = str_mac[i];
         if (i % 3 == 2) {
             if (c != ':') {
                 return 1;
