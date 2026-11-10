@@ -1,8 +1,7 @@
 name: Release
 on:
   push:
-    tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
+    tags: ['[0-9]+.[0-9]+.[0-9]+']
   workflow_dispatch:
     inputs:
       version:
@@ -11,69 +10,75 @@ on:
 
 permissions:
   contents: write
+  packages: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  RAW_VERSION: ${{ inputs.version || github.ref_name }}
 
 jobs:
-  build:
+  package:
     runs-on: ubuntu-latest
+    container:
+      image: ${{ matrix.image }}
+      credentials:
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
-          - name: x86_64
-            toolchain: ""
-          - name: aarch64
-            toolchain: "cmake/toolchains/aarch64-linux-gnu.cmake"
+          - { name: deb-x86_64,  image: "ghcr.io/gibus21250/wakupator-build:debian12", gen: DEB, arch: x86_64, toolchain: "" }
+          - { name: deb-aarch64, image: "ghcr.io/gibus21250/wakupator-build:debian12", gen: DEB, arch: aarch64, toolchain: "cmake/toolchains/aarch64-linux-gnu.cmake" }
+          - { name: rpm-x86_64,  image: "ghcr.io/gibus21250/wakupator-build:alma9", gen: RPM, arch: x86_64, toolchain: "" }
+          - { name: tgz-x86_64,  image: "ghcr.io/gibus21250/wakupator-build:alma9", gen: TGZ, arch: x86_64, toolchain: "" }
+          - { name: tgz-aarch64, image: "ghcr.io/gibus21250/wakupator-build:debian12", gen: TGZ, arch: aarch64, toolchain: "cmake/toolchains/aarch64-linux-gnu.cmake" }
 
-    name: build-${{ matrix.name }}
+    name: package-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install cross toolchain if missing
+      - name: Build and package
         run: |
-          if ! command -v aarch64-linux-gnu-gcc >/dev/null || ! command -v qemu-aarch64 >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user
-          fi
+          VERSION="${RAW_VERSION#v}"
+          VERSION="${VERSION//-/\~}"
+          echo "Building version: ${VERSION}"
 
-      - name: Configure and build
-        run: |
           ARGS=()
           if [ -n "${{ matrix.toolchain }}" ]; then
-            ARGS+=("-DCMAKE_TOOLCHAIN_FILE=$(pwd)/${{ matrix.toolchain }}")
-            ARGS+=("-DWAKUPATOR_UNIT_ONLY=ON")
+            ARGS+=("-DCMAKE_TOOLCHAIN_FILE=$PWD/${{ matrix.toolchain }}" -DWAKUPATOR_UNIT_ONLY=ON)
           fi
-          cmake -B build-${{ matrix.name }} \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DWAKUPATOR_BUILD_TESTS=ON \
-            "${ARGS[@]}"
-
-      - name: Build
-        run: cmake --build build-${{ matrix.name }} -j$(nproc)
-
-      - name: Allow unprivileged user namespaces (if possible)
-        run: |
-          if sudo -n true 2>/dev/null; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          else
-            echo "no passwordless sudo, skipping sysctl"
+          if [ "${{ matrix.gen }}" = "DEB" ] && [ "${{ matrix.arch }}" = "aarch64" ]; then
+            ARGS+=(-DCPACK_DEBIAN_PACKAGE_ARCHITECTURE=arm64
+                   -DCPACK_DEBIAN_PACKAGE_SHLIBDEPS=OFF
+                   -DCPACK_DEBIAN_PACKAGE_DEPENDS=libc6)
+          fi
+          if [ "${{ matrix.gen }}" = "TGZ" ]; then
+            ARGS+=("-DCPACK_SYSTEM_NAME=linux-${{ matrix.arch }}")
           fi
 
-      - name: Tests
-        run: ctest --test-dir build-${{ matrix.name }} --output-on-failure
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+                -DWAKUPATOR_VERSION="${VERSION}" "${ARGS[@]}"
+          cmake --build build -j"$(nproc)"
+          cd build
+          cpack -G ${{ matrix.gen }}
 
-      - name: Package
-        run: |
-          mkdir -p dist
-          tar -czf dist/wakupator-${{ github.ref_name }}-linux-${{ matrix.name }}.tar.gz \
-            -C build wakupator
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          find . -maxdepth 1 \( -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' \) \
+               -exec cp {} "$GITHUB_WORKSPACE/dist/" \;
+          ls -l "$GITHUB_WORKSPACE/dist"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.name }}
-          path: dist/*.tar.gz
+          name: pkg-${{ matrix.name }}
+          path: dist/*
 
   release:
-    needs: build
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +87,9 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          path: dist
+          pattern: pkg-*
+          merge-multiple: true
 
       - name: Install git-cliff
         run: |

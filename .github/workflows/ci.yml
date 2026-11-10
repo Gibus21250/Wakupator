@@ -6,6 +6,18 @@ on:
     types: [opened, edited, synchronize, reopened]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  packages: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pr-title:
     if: github.event_name == 'pull_request'
@@ -19,34 +31,31 @@ jobs:
           echo "$TITLE" | grep -Eq "$REG" \
             || { echo "Invalid title: $TITLE (e.g: feat(core): my new feature)"; exit 1; }
 
-
   build:
+    if: github.event.action != 'edited'
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/gibus21250/wakupator-build:debian12
+      credentials:
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+      options: --privileged
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: x86_64
-            toolchain: ""
-          - name: aarch64
-            toolchain: "cmake/toolchains/aarch64-linux-gnu.cmake"
+          - { name: x86_64,  toolchain: "" }
+          - { name: aarch64, toolchain: "cmake/toolchains/aarch64-linux-gnu.cmake" }
 
     name: build-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install cross toolchain
-        run: |
-          if ! command -v aarch64-linux-gnu-gcc >/dev/null || ! command -v qemu-aarch64 >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross qemu-user
-          fi
-
       - name: Configure
         run: |
           ARGS=()
           if [ -n "${{ matrix.toolchain }}" ]; then
-            ARGS+=("-DCMAKE_TOOLCHAIN_FILE=$(pwd)/${{ matrix.toolchain }}")
+            ARGS+=("-DCMAKE_TOOLCHAIN_FILE=$PWD/${{ matrix.toolchain }}")
             ARGS+=("-DWAKUPATOR_UNIT_ONLY=ON")
           fi
           cmake -B build-${{ matrix.name }} \
@@ -55,15 +64,7 @@ jobs:
             "${ARGS[@]}"
 
       - name: Build
-        run: cmake --build build-${{ matrix.name }} -j$(nproc)
-
-      - name: Allow unprivileged user namespaces (if possible)
-        run: |
-          if sudo -n true 2>/dev/null; then
-            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          else
-            echo "no passwordless sudo, skipping sysctl"
-          fi
+        run: cmake --build build-${{ matrix.name }} -j"$(nproc)"
 
       - name: Tests
         run: ctest --test-dir build-${{ matrix.name }} --output-on-failure --parallel

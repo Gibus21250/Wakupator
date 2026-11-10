@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(Wakupator VERSION 1.2 LANGUAGES C)
+set(WAKUPATOR_VERSION "" CACHE STRING "Version override")
+project(Wakupator VERSION 1.2.0 LANGUAGES C)
+
+if(NOT WAKUPATOR_VERSION)
+    set(WAKUPATOR_VERSION "${PROJECT_VERSION}~dev")
+endif()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -90,8 +95,6 @@ target_link_libraries(wakupator PRIVATE
         wakupator_lib
 )
 
-install(TARGETS wakupator DESTINATION bin)
-
 # ---------------------------------------------------      Test      ---------------------------------------------------
 
 option(WAKUPATOR_BUILD_TESTS "Build tests" OFF)
@@ -101,3 +104,29 @@ if(WAKUPATOR_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+# ---------------------------------------------------     CPack      ---------------------------------------------------
+
+include(GNUInstallDirs)
+
+install(TARGETS wakupator RUNTIME DESTINATION ${CMAKE_INSTALL_SBINDIR})
+install(FILES packaging/linux/systemd/wakupator@.service
+        DESTINATION lib/systemd/system)
+install(FILES packaging/linux/config/eth0.conf.example
+        DESTINATION /etc/wakupator)
+
+set(CPACK_PACKAGE_NAME "wakupator")
+set(CPACK_PACKAGE_VERSION "${WAKUPATOR_VERSION}")
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
+set(CPACK_PACKAGE_CONTACT "jacquinet.nathan@gmail.com")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Automatically starts machines based on incoming traffic, using smart local IP spoofing and Wake-on-LAN.")
+set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
+set(CPACK_GENERATOR "DEB;RPM;TGZ")
+
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON CACHE BOOL "")
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+        "${CMAKE_SOURCE_DIR}/packaging/linux/scripts/postinst;${CMAKE_SOURCE_DIR}/packaging/linux/scripts/prerm")
+set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE "${CMAKE_SOURCE_DIR}/packaging/linux/scripts/postinst")
+set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE "${CMAKE_SOURCE_DIR}/packaging/linux/scripts/prerm")
+include(CPack)
