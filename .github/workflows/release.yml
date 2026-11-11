@@ -1,7 +1,7 @@
 name: Release
 on:
   push:
-    tags: ['[0-9]+.[0-9]+.[0-9]+']
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
   workflow_dispatch:
     inputs:
       version:
@@ -76,12 +76,72 @@ jobs:
           name: pkg-${{ matrix.name }}
           path: dist/*
 
+  openwrt:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: mipsel_24kc, sdk: "25.12.0" }
+          - { arch: mipsel_24kc, sdk: "24.10.0" }
+          - { arch: aarch64_cortex-a53, sdk: "25.12.0" }
+          - { arch: aarch64_cortex-a53, sdk: "24.10.0" }
+          - { arch: x86_64, sdk: "25.12.0" }
+          - { arch: x86_64, sdk: "24.10.0" }
+          - { arch: mips_24kc, sdk: "25.12.0" }
+          - { arch: mips_24kc, sdk: "24.10.0" }
+    name: openwrt-${{ matrix.arch }}-${{ matrix.sdk }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build with OpenWrt SDK
+        run: |
+          V="${RAW_VERSION#v}"
+          V="${V%%[~-]*}"
+
+          CID=$(docker create \
+            -e WAKUPATOR_VERSION="$V" \
+            -e WAKUPATOR_SRC=/repo \
+            --entrypoint bash -w /builder \
+            ghcr.io/openwrt/sdk:${{ matrix.arch }}-${{ matrix.sdk }} \
+            -c '
+            set -e
+            cp -r /repo/packaging/openwrt/wakupator package/wakupator
+            make defconfig
+            make package/wakupator/compile V=s -j"$(nproc)"
+            ')
+          echo "CID=$CID" >> "$GITHUB_ENV"
+          docker cp . "$CID:/repo"
+          docker start -a "$CID"
+          docker cp "$CID:/builder/bin" ./sdk-bin
+          docker rm "$CID"
+
+      - name: Collect
+        run: |
+          mkdir -p dist
+          find sdk-bin -type f \( -name '*wakupator*.apk' -o -name '*wakupator*.ipk' \) \
+            | while read -r f; do
+                cp "$f" "dist/openwrt-${{ matrix.sdk }}-${{ matrix.arch }}-$(basename "$f")"
+              done
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-openwrt-${{ matrix.arch }}-${{ matrix.sdk }}
+          path: dist/*
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f "$CID" 2>/dev/null || true
+          docker rmi -f ghcr.io/openwrt/sdk:${{ matrix.arch }}-${{ matrix.sdk }} 2>/dev/null || true
+
   release:
-    needs: package
+    needs: [package, openwrt]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -93,12 +153,9 @@ jobs:
 
       - name: Install git-cliff
         run: |
-          if ! command -v git-cliff >/dev/null; then
-            python3 -m venv /tmp/cliff-venv
-            /tmp/cliff-venv/bin/pip install git-cliff==2.14.2
-            echo "/tmp/cliff-venv/bin" >> "$GITHUB_PATH"
-          fi
-          git cliff --version
+          python3 -m venv /tmp/cliff-venv
+          /tmp/cliff-venv/bin/pip install git-cliff==2.14.2
+          echo "/tmp/cliff-venv/bin" >> "$GITHUB_PATH"
 
       - name: Draft release notes
         run: |

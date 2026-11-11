@@ -1,5 +1,7 @@
 #ifndef WAKUPATOR_MANAGER_H
 #define WAKUPATOR_MANAGER_H
+#include <stdint.h>
+#include <pthread.h>
 #include <netinet/in.h>
 
 #include "client.h"
