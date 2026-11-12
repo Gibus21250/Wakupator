@@ -125,8 +125,7 @@ set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
 set(CPACK_GENERATOR "DEB;RPM;TGZ")
 
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON CACHE BOOL "")
-set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
-        "${CMAKE_SOURCE_DIR}/packaging/linux/scripts/postinst;${CMAKE_SOURCE_DIR}/packaging/linux/scripts/prerm")
+set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_SOURCE_DIR}/packaging/linux/scripts/postinst;${CMAKE_SOURCE_DIR}/packaging/linux/scripts/prerm")
 set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE "${CMAKE_SOURCE_DIR}/packaging/linux/scripts/postinst")
 set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE "${CMAKE_SOURCE_DIR}/packaging/linux/scripts/prerm")
 include(CPack)

@@ -7,12 +7,18 @@
 #include <poll.h>
 #include <unistd.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
+#include <memory.h>
 #include <netpacket/packet.h>
 #include <net/if.h>
+#include <errno.h>
+
 #include <pthread.h>
 
 #include "wakupator/core/monitor.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <threads.h>
 
 #include "wakupator/core/manager.h"
